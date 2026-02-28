@@ -15,18 +15,3 @@ plt.title('Diagramma P-T Saturazione Acqua (Progetto Nucleare)')
 plt.grid(True)
 plt.legend()
 plt.show()
-# vorrei runnare ma non posso
-# riesci a scrivere ludo?
-# dove si runna?
-
-# sei da browser?
-# si, devo scaricare qualcosa?
-# non lo so, sto ancora cercando di capire come funzioni, ho paura che solo l'host possa 
-
-# la AI ti funziona da browser?
-#da cosa lo capisco
-# che prova a scrivere lui per te in continuazione, quindi credo di no
-#no anzi mi va su ogni volta che scrivo, sembra abbia crisi epilettich
-# perfetto, ora provo a smanettare un po per capire come migliorare sta roba
-# , per ora ho solo scaricato la roba dell'acqua che dice nelle slide il
-#
