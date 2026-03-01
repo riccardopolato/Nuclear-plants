@@ -6,8 +6,12 @@ from matplotlib import colors as mcolors
 import numpy as np
 
 # Definiamo un range di pressioni da 1 bar a 220 bar (vicino al punto critico)
-pressioni = np.linspace(1e5, 220e5, 100)
-temperature = [CP.PropsSI('T', 'P', p, 'Q', 0, 'Water') - 273.15 for p in pressioni]
+pressioni = np.linspace(1e5, 220e5, 200)
+# Calcolo della temperatura di saturazione per l'acqua
+temperature_acqua = [CP.PropsSI('T', 'P', p, 'Q', 0, 'Water') - 273.15 for p in pressioni]
+
+# Calcolo della temperatura di saturazione per l'olio (esempio: usiamo 'Oil' come fluido generico)
+temperature_olio = [CP.PropsSI('T', 'P', p, 'Q', 0.5, 'Water') - 273.15 for p in pressioni]
 
 def complement_color(color):
 	"""Restituisce il colore complementare, lasciando intatti valori speciali (es. 'inherit')."""
@@ -31,12 +35,15 @@ mpl.rcParams['grid.color'] = complement_color(base['grid.color'])
 mpl.rcParams['legend.facecolor'] = complement_color(base['legend.facecolor'])
 mpl.rcParams['legend.edgecolor'] = complement_color(base['legend.edgecolor'])
 
+# Creazione del grafico combinato
 plt.figure(figsize=(10, 6))
 default_line = base['axes.prop_cycle'].by_key()['color'][0]
-plt.plot(pressioni/1e5, temperature, label='Curva di Saturazione', color=complement_color(default_line))
+plt.plot(pressioni/1e5, temperature_acqua, label='Curva di Saturazione', color=complement_color(default_line))
+plt.plot(pressioni/1e5, temperature_olio, label='Curva di Saturazione', color=complement_color(default_line))
 plt.xlabel('Pressione [bar]')
 plt.ylabel('Temperatura [°C]')
-plt.title('Diagramma P-T Saturazione Acqua (Progetto Nucleare)')
+plt.title('Diagramma P-T Saturazione Acqua e Olio')
 plt.grid(True)
 plt.legend()
+plt.tight_layout()
 plt.show()
