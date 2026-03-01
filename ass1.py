@@ -15,3 +15,7 @@ plt.title('Diagramma P-T Saturazione Acqua (Progetto Nucleare)')
 plt.grid(True)
 plt.legend()
 plt.show()
+
+a = 0.5  # Coefficiente di attrito
+L = 100  # Lunghezza del tubo in metri
+D = 0.1  # Diametro del tubo in metri
