@@ -15,4 +15,3 @@ plt.title('Diagramma P-T Saturazione Acqua (Progetto Nucleare)')
 plt.grid(True)
 plt.legend()
 plt.show()
-
