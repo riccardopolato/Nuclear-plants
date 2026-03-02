@@ -85,8 +85,8 @@ def plot_results(od_list, h_list, L_max):
     
     plt.yscale('log')
     plt.xlabel('Outside Diameter [inch]')
-    plt.ylabel('Altezza h [m]')
-    plt.title('Dimensionamento: h vs OD')
+    plt.ylabel('Height h [m]')
+    plt.title('Design Optimization: Height vs Diameter')
     plt.grid(True, which='both', alpha=0.3)
     plt.legend()
     plt.show()
