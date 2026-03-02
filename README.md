@@ -33,5 +33,8 @@ Run the scripts in the `assignment1/` folder to perform the analyses. For exampl
 python assignment1/project1.py
 ```
 
+### Results of `project1.py`
+- **Evaluation of h**: The script can evaluate the height for every diameter of pipe, giving a plot as a result.
+
 ## License
 This project is for educational purposes only.
