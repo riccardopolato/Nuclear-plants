@@ -100,6 +100,15 @@ Q_THERM = 34.8e6
 L_LIMIT = 10.0
 K_HOT, K_COLD = 40, 20
 
+# Risolvo per un diametro specifico 
+od_test = 16 # inch
+th_test = 0.375 # inch
+D_test, A_test = get_pipe_geometry(od_test, th_test)
+m_test, vl_test, vv_test, rl_test, rv_test = calculate_massflow_and_velocity(Q_THERM, P_SYS, D_test, A_test)
+fl_test, fv_test = calculate_friction_factors(P_SYS, vl_test, vv_test, D_test, rl_test, rv_test)
+h_test = calculate_height(rl_test, rv_test, vl_test, vv_test, fl_test, fv_test, K_COLD, K_HOT, L_LIMIT, L_LIMIT, D_test, G_CONST)
+print(f"Per OD={od_test} inch, h = {h_test:.2f} m")
+
 # 1. Caricamento
 table = load_diameter_data('assignment1/diameter_table.txt')
 
@@ -110,12 +119,5 @@ if table is not None:
     # 3. Plot
     plot_results(valid_od, valid_h, L_LIMIT)
 
-# Risolvo per un diametro specifico 
-od_test = 16 # inch
-th_test = 0.375 # inch
-D_test, A_test = get_pipe_geometry(od_test, th_test)
-m_test, vl_test, vv_test, rl_test, rv_test = calculate_massflow_and_velocity(Q_THERM, P_SYS, D_test, A_test)
-fl_test, fv_test = calculate_friction_factors(P_SYS, vl_test, vv_test, D_test, rl_test, rv_test)
-h_test = calculate_height(rl_test, rv_test, vl_test, vv_test, fl_test, fv_test, K_COLD, K_HOT, L_LIMIT, L_LIMIT, D_test, G_CONST)
-print(f"Per OD={od_test} inch, h = {h_test:.2f} m")
+
 
