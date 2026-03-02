@@ -64,8 +64,8 @@ L_liq = 10.0          # m (Lunghezza ramo liquido)
 L_vap = 10.0          # m (Lunghezza ramo vapore - ipotizzata uguale a L1)
 
 # Geometria del tubo (da pollici a metri)
-OD_inch = 1.9         # inches
-th_inch = 0.145       # inches
+OD_inch = 16         # inches
+th_inch = 0.375      # inches
 
 # Coefficienti di perdita localizzata
 k_h = 40              # heater
