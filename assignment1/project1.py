@@ -45,64 +45,80 @@ def calculate_height(rho_l, rho_v, v_l, v_v, f_l, f_v, k_l, k_v, L_l, L_v, D, g=
     h = (term_liquid + term_vapor) / ((rho_l - rho_v) * g)
     return h
 
-# --- SEZIONE DATI ---
+def load_diameter_data(filepath):
+    """Carica i dati dal file TXT."""
+    try:
+        return np.loadtxt(filepath)
+    except FileNotFoundError:
+        print(f"Errore: Il file {filepath} non esiste.")
+        return None
 
-g = 9.81
-p = 70 * 10**5
-Q_thermal = 34.8e6
-L_liq = 10.0
-L_vap = 10.0
-L_max = 10.0  # Limite fisico h <= L
-k_h = 40      # Heater (hot)
-k_c = 20      # Cooler (cold)
 
-# --- 1. CARICAMENTO DATI DA FILE ESTERNO ---
-# Carichiamo le due colonne: Outside Diameter e Thickness
-data_table = np.loadtxt('assignment1/diameter_table.txt')
+def run_optimization_cycle(data_table, Q_thermal, p, L_max, L_liq, L_vap, k_c, k_h, g):
+    """Esegue il ciclo su tutti i diametri e filtra i risultati."""
+    plot_od = []
+    plot_h = []
 
-# --- 2. CALCOLO SINGOLO (Esempio per OD = 16) ---
-OD_test, th_test = 16.0, 0.375
-D_t, A_t = get_pipe_geometry(OD_test, th_test)
-m_t, vl_t, vv_t, rl_t, rv_t = calculate_massflow_and_velocity(Q_thermal, p, D_t, A_t)
-fl_t, fv_t = calculate_friction_factors(p, vl_t, vv_t, D_t, rl_t, rv_t)
-h_test = calculate_height(rl_t, rv_t, vl_t, vv_t, fl_t, fv_t, k_c, k_h, L_liq, L_vap, D_t, g)
+    print(f"{'OD [in]':<10} | {'h [m]':<10} | {'Stato'}")
+    print("-" * 35)
 
-print(f"--- TEST SINGOLO (OD {OD_test}\") ---")
-print(f"h calcolato: {h_test:.4f} m\n")
+    for row in data_table:
+        od_i, th_i = row[0], row[1]
+        
+        D_i, A_i = get_pipe_geometry(od_i, th_i)
+        m_i, vl_i, vv_i, rl_i, rv_i = calculate_massflow_and_velocity(Q_thermal, p, D_i, A_i)
+        fl_i, fv_i = calculate_friction_factors(p, vl_i, vv_i, D_i, rl_i, rv_i)
+        h_i = calculate_height(rl_i, rv_i, vl_i, vv_i, fl_i, fv_i, k_c, k_h, L_liq, L_vap, D_i, g)
+        
+        if 0 < h_i <= L_max:
+            plot_od.append(od_i)
+            plot_h.append(h_i)
+                        
+    return plot_od, plot_h
 
-# --- 3. CICLO DI OTTIMIZZAZIONE ---
-plot_od = []
-plot_h = []
+def plot_results(od_list, h_list, L_max):
+    """Genera il grafico dei diametri validi."""
+    if not od_list:
+        print("Nessun dato valido da plottare.")
+        return
 
-print(f"{'OD [in]':<10} | {'h [m]':<10} | {'Stato'}")
-print("-" * 35)
-
-for row in data_table:
-    od_i = row[0]
-    th_i = row[1]
-    
-    D_i, A_i = get_pipe_geometry(od_i, th_i)
-    m_i, vl_i, vv_i, rl_i, rv_i = calculate_massflow_and_velocity(Q_thermal, p, D_i, A_i)
-    fl_i, fv_i = calculate_friction_factors(p, vl_i, vv_i, D_i, rl_i, rv_i)
-    h_i = calculate_height(rl_i, rv_i, vl_i, vv_i, fl_i, fv_i, k_c, k_h, L_liq, L_vap, D_i, g)
-    
-    if 0 < h_i <= L_max:
-        plot_od.append(od_i)
-        plot_h.append(h_i)
-        print(f"{od_i:<10.3f} | {h_i:<10.4f} | ✅ OK")
-    else:
-        print(f"{od_i:<10.3f} | {h_i:<10.4f} | ❌ SCARTATO")
-
-# --- 4. GRAFICO FINALE ---
-if plot_od:
     plt.figure(figsize=(10, 6))
-    plt.plot(plot_od, plot_h, color='navy', marker='o', linestyle='-', linewidth=2, markersize=6)
-    plt.axhline(y=L_max, color='red', linestyle='--', label='Limite h = L')
+    plt.plot(od_list, h_list, color='navy', marker='o', label='Soluzioni Valide')
+    plt.axhline(y=L_max, color='red', linestyle='--', label=f'Limite L = {L_max}m')
     
-    plt.yscale('log') # Scala logaritmica utile per range ampi di h
+    plt.yscale('log')
     plt.xlabel('Outside Diameter [inch]')
-    plt.ylabel('Altezza h [m] (Scala Log)')
-    plt.title('Dimensionamento Ottimale: h vs Diametro Esterno')
+    plt.ylabel('Altezza h [m]')
+    plt.title('Dimensionamento: h vs OD')
     plt.grid(True, which='both', alpha=0.3)
     plt.legend()
     plt.show()
+
+# --- MAIN SCRIPT ---
+
+# Parametri fissi
+G_CONST = 9.81
+P_SYS = 70e5
+Q_THERM = 34.8e6
+L_LIMIT = 10.0
+K_HOT, K_COLD = 40, 20
+
+# 1. Caricamento
+table = load_diameter_data('assignment1/diameter_table.txt')
+
+if table is not None:
+    # 2. Ottimizzazione
+    valid_od, valid_h = run_optimization_cycle(table, Q_THERM, P_SYS, L_LIMIT, L_LIMIT, L_LIMIT, K_COLD, K_HOT, G_CONST)
+    
+    # 3. Plot
+    plot_results(valid_od, valid_h, L_LIMIT)
+
+# Risolvo per un diametro specifico 
+od_test = 16 # inch
+th_test = 0.375 # inch
+D_test, A_test = get_pipe_geometry(od_test, th_test)
+m_test, vl_test, vv_test, rl_test, rv_test = calculate_massflow_and_velocity(Q_THERM, P_SYS, D_test, A_test)
+fl_test, fv_test = calculate_friction_factors(P_SYS, vl_test, vv_test, D_test, rl_test, rv_test)
+h_test = calculate_height(rl_test, rv_test, vl_test, vv_test, fl_test, fv_test, K_COLD, K_HOT, L_LIMIT, L_LIMIT, D_test, G_CONST)
+print(f"Per OD={od_test} inch, h = {h_test:.2f} m")
+
