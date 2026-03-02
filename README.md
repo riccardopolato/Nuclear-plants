@@ -37,7 +37,7 @@ python assignment1/project1.py
 To manage your project with Git, follow these steps:
 - **Synchronize files**: Ensure your local repository is up-to-date by pulling the latest changes.
 - **Modify files**: Make the necessary changes to your files.
-- **Save changes**: Save the modified files.
+- **Save changes**: Save the modified files (Control + S).
 - **Stage changes**: Use the `+` icon next to the modified files under the "Changes" section to stage them.
 - **Commit changes**: From the commit dropdown, enter a descriptive commit message indicating what was modified.
 - **Push changes**: Save the commit and push it to the remote repository.
