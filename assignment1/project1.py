@@ -59,9 +59,6 @@ def run_optimization_cycle(data_table, Q_thermal, p, L_max, L_liq, L_vap, k_c, k
     plot_od = []
     plot_h = []
 
-    print(f"{'OD [in]':<10} | {'h [m]':<10} | {'Stato'}")
-    print("-" * 35)
-
     for row in data_table:
         od_i, th_i = row[0], row[1]
         
