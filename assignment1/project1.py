@@ -104,18 +104,18 @@ def plot_results(od_list, h_list, L_max):
 # --- MAIN SCRIPT ---
 
 # Parametri fissi
-G_CONST = 9.81
-P_SYS = 70e5
-Q_THERM = 34.8e6
-L_LIMIT = 10.0
+G_CONST = 9.81 # m/s^2
+P_SYS = 70e5 # Pa
+Q_THERM = 34.8e6 # W
 K_HOT, K_COLD = 40, 20
 
 # Risolvo per un diametro specifico 
+L_punto1 = 10.0 # m
 od_test = 16 # inch
 th_test = 0.375 # inch
 
 h_spec = solve_for_specific_diameter(
-    od_test, th_test, Q_THERM, P_SYS, L_LIMIT, K_COLD, K_HOT, G_CONST
+    od_test, th_test, Q_THERM, P_SYS, L_punto1, K_COLD, K_HOT, G_CONST
 )
 print(f"Per OD={od_test} inch, h = {h_spec:.2f} m")
 
@@ -124,10 +124,10 @@ table = load_diameter_data('assignment1/diameter_table.txt')
 
 if table is not None:
     # 2. Ottimizzazione
-    valid_od, valid_h = run_optimization_cycle(table, Q_THERM, P_SYS, L_LIMIT, L_LIMIT, L_LIMIT, K_COLD, K_HOT, G_CONST)
+    valid_od, valid_h = run_optimization_cycle(table, Q_THERM, P_SYS, L_punto1, L_punto1, L_punto1, K_COLD, K_HOT, G_CONST)
     
     # 3. Plot
-    plot_results(valid_od, valid_h, L_LIMIT)
+    plot_results(valid_od, valid_h, L_punto1)
 
 
 
