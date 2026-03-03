@@ -53,6 +53,16 @@ def load_diameter_data(filepath):
         print(f"Errore: Il file {filepath} non esiste.")
         return None
 
+def solve_for_specific_diameter(od_inch, th_inch, Q_thermal, p, L_max, k_c, k_h, g):
+    """Calcola h per un singolo diametro specifico inserito dall'utente."""
+    # Sfrutta le funzioni esistenti
+    D, A = get_pipe_geometry(od_inch, th_inch)
+    m_dot, vl, vv, rl, rv = calculate_massflow_and_velocity(Q_thermal, p, D, A)
+    fl, fv = calculate_friction_factors(p, vl, vv, D, rl, rv)
+    
+    h = calculate_height(rl, rv, vl, vv, fl, fv, k_c, k_h, L_max, L_max, D, g)
+    
+    return h
 
 def run_optimization_cycle(data_table, Q_thermal, p, L_max, L_liq, L_vap, k_c, k_h, g):
     """Esegue il ciclo su tutti i diametri e filtra i risultati."""
@@ -103,11 +113,11 @@ K_HOT, K_COLD = 40, 20
 # Risolvo per un diametro specifico 
 od_test = 16 # inch
 th_test = 0.375 # inch
-D_test, A_test = get_pipe_geometry(od_test, th_test)
-m_test, vl_test, vv_test, rl_test, rv_test = calculate_massflow_and_velocity(Q_THERM, P_SYS, D_test, A_test)
-fl_test, fv_test = calculate_friction_factors(P_SYS, vl_test, vv_test, D_test, rl_test, rv_test)
-h_test = calculate_height(rl_test, rv_test, vl_test, vv_test, fl_test, fv_test, K_COLD, K_HOT, L_LIMIT, L_LIMIT, D_test, G_CONST)
-print(f"Per OD={od_test} inch, h = {h_test:.2f} m")
+
+h_spec = solve_for_specific_diameter(
+    od_test, th_test, Q_THERM, P_SYS, L_LIMIT, K_COLD, K_HOT, G_CONST
+)
+print(f"Per OD={od_test} inch, h = {h_spec:.2f} m")
 
 # 1. Caricamento
 table = load_diameter_data('assignment1/diameter_table.txt')
