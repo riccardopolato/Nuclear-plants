@@ -269,3 +269,5 @@ print(f"{'Punto 3: Rough (L = h)':<35} | {min_od_3_h if min_od_3_h else 'N/A':<2
 print("="*80)
 54
 plt.show()
+
+# ti prego dimmi che è tutto ok, non voglio dover riscrivere tutto da capo :D
