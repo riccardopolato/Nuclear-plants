@@ -1,17 +1,17 @@
 VOCE,VALORE [Pa]
 --- PERDITE DISTRIBUITE ---,
-Dist Cold,514.4512
-Dist Hot,517.8741
-Dist Hx,111.4891
-Sotto-totale Distribuite,1143.8144
+Dist Cold,504.2198
+Dist Hot,507.5807
+Dist Hx,109.2278
+Sotto-totale Distribuite,1121.0283
 ,
 --- PERDITE LOCALIZZATE ---,
-Loc Bends Hot,142.5076
-Loc Bends Cold,140.3752
-Loc Hx,-19.2288
-Sotto-totale Localizzate,263.654
+Loc Bends Hot,139.6183
+Loc Bends Cold,137.507
+Loc Hx,24.2753
+Sotto-totale Localizzate,301.4006
 ,
 --- RESUME FINALE ---,
-Driving Force (Buoyancy),1407.4684
-Total Friction Losses,1407.4684
-Mass Flow Rate [kg/s],76.1347
+Driving Force (Buoyancy),1422.4289
+Total Friction Losses,1422.4289
+Mass Flow Rate [kg/s],75.3542
