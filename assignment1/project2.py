@@ -9,8 +9,19 @@ def get_pipe_geometry(outside_diameter_inch, thickness_inch):
     area_m2 = np.pi * (d_inner_m / 2)**2
     return d_inner_m, area_m2
 
+def reynolds_number(m, D_int, p, T):
+    ' Calcola il numero di Reynolds per lo scambiatore nel ISC'
+    mu = CP.PropsSI('V', 'T', T+273.15, 'P', p, 'Water') # viscosità dinamica
+    Re = 4*m / (np.pi*D_int*mu)
+    return Re
+
+def friction_factor(eps, D, Re):
+    ' Calcola il fattore di attrito con Haaland per lo scambiatore nel ISC'
+    term = ((eps/D)/3.7)**1.11 + 6.9/Re
+    return (-1.8 * np.log10(term))**-2
+
 # calcolo preliminare ISC
-def global_heat_transfer_coefficient(P, A_tot, D_ext, D_int, k, Re, p, T, f):
+def global_heat_transfer_coefficient_ISC(P, A_tot, D_ext, D_int, k, Re, p, T, f):
     ' Calcola U per lo scambiatore nel ISC'
     # convezione esterna
     flux = P / A_tot
@@ -27,26 +38,14 @@ def global_heat_transfer_coefficient(P, A_tot, D_ext, D_int, k, Re, p, T, f):
         Nu = (f/8)*(Re-1000)*Pr / (1 + 12.7*(f/8)**0.5*(Pr**(2/3)-1))
     h_internal = Nu * k / D_int
     
-    U = 1 / (1/h_pool + cond + 1/h_internal)
+    U = 1 / (1/h_pool + cond + D_ext/(D_int*h_internal))
 
     deltaT_lm = P / (A_tot*U)
-    return U, deltaT_lm
+    return deltaT_lm
 
-def reynolds_number(m, D_int, p, T):
-    ' Calcola il numero di Reynolds per lo scambiatore nel ISC'
-    mu = CP.PropsSI('V', 'T', T+273.15, 'P', p, 'Water') # viscosità dinamica
-    Re = 4*m / (np.pi*D_int*mu)
-    return Re
-
-def friction_factor(eps, D, Re):
-    ' Calcola il fattore di attrito per lo scambiatore nel ISC'
-    term = ((eps/D)/3.7)**1.11 + 6.9/Re
-    return (-1.8 * np.log10(term))**-2
-
-
-def temperature_ISC(T, p, T_sat, deltaT_lm, U, P_term):
+def temperature_ISC(T, p, T_sat, deltaT_lm, m, P_term):
     ' Calcola la temperatura nel ramo caldo e nel ramo freddo nel ISC'
-    deltaT = P_term / (U*CP.PropsSI('C', 'T', T+273.15, 'P', p, 'Water'))
+    deltaT = P_term / (m*CP.PropsSI('C', 'T', T+273.15, 'P', p, 'Water'))
 
     T_h = (T_sat - (deltaT+T_sat)*np.exp(deltaT/deltaT_lm)) / (1 - np.exp(deltaT/deltaT_lm))
     T_c = T_h - deltaT
@@ -99,10 +98,10 @@ def iteration(m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
         f_av = friction_factor(eps_ISC, id_ISC, Re_av)
         
         # Calcolo U e deltaT_lm nello scambiatore
-        U, deltaT_lm = global_heat_transfer_coefficient(P_term, A_HX2_tot, od_HX2, id_HX2, k_HX2, Re_av, p_ISC, T_av, f_av)
+        deltaT_lm = global_heat_transfer_coefficient_ISC(P_term, A_HX2_tot, od_HX2, id_HX2, k_HX2, Re_av, p_ISC, T_av, f_av)
         
         # Calcolo temperature caldo e freddo
-        T_c, T_h = temperature_ISC(T_av, p_ISC, T_sat, deltaT_lm, U, P_term)
+        T_c, T_h = temperature_ISC(T_av, p_ISC, T_sat, deltaT_lm, m, P_term)
         
         # Aggiornamento T_av come media aritmetica
         T_av_new = (T_h + T_c) / 2
@@ -121,17 +120,18 @@ def iteration(m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
         m_new = mass_flow_rate(deltaP_buoyancy, deltaP_friction)
         
         # Verifica di convergenza
-        error = abs(m_new - m)
+        error = abs(m_new - m) / m
         if error < tolerance:
             print(f"Convergenza raggiunta in {iter_num+1} iterazioni")
             print(f"m finale = {m_new:.2f} kg/s, T_av finale = {T_av_new:.2f} °C")
             print(f"T_h = {T_h:.2f} °C, T_c = {T_c:.2f} °C")
+            print(f"T_limit = {T_sat_ISC:.2f} °C")
             return m_new, T_av_new, T_h, T_c
         
         m = m_new
         T_av = T_av_new
         
-        if (iter_num + 1) % 10 == 0:
+        if (iter_num + 1) % 10 == 0 or iter_num == 0:
             print(f"Iterazione {iter_num+1}: m = {m:.2f} kg/s, T_av = {T_av:.2f} °C, errore = {error:.4f}")
     
     print(f"Avviso: max iterazioni ({max_iter}) raggiunto senza convergenza")
@@ -147,9 +147,10 @@ P_term = 0.01*P_nom #W
 L_ISC = 40 #m
 H_ISC = 10 #m
 p_ISC = 70e5 #Pa
+T_sat_ISC = CP.PropsSI('T', 'P', p_ISC, 'Q', 0, 'Water') - 273.15 #°C
 od_ISC = 16 #inch
-thickness_ISC = 0.5 #inch
-id_ISC, A_ISC = get_pipe_geometry(od_ISC, thickness_ISC) #m
+thickness_ISC = 1.031 #inch
+id_ISC, A_ISC = get_pipe_geometry(od_ISC, thickness_ISC) #m, m^2
 eps_ISC = 2e-4 * id_ISC #m
 
 k_bends_ISC = 0.45 # concentrated loss
@@ -161,8 +162,8 @@ od_HX2 = 25.4e-3 #m
 thickness_HX2 = 1.24e-3 #m
 id_HX2 = od_HX2 - 2*thickness_HX2 #m
 eps_HX2 = 1e-4 * id_HX2 #m
-A_HX2 = np.pi * id_HX2 * L_HX2 #m^2 per tubo
-A_HX2_tot = 430 #m^2
+A_HX2 = np.pi * (id_HX2/2)**2  #m^2 (cross section single tube)
+A_HX2_tot = 430 #m^2 (total heat exchange area)
 
 p_pool = 1e5 #Pa
 T_sat = CP.PropsSI('T', 'P', p_pool, 'Q', 0, 'Water') - 273.15 #°C
