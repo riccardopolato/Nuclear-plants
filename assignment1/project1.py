@@ -282,6 +282,14 @@ target_diameters = [
 ]
 
 # --- ESECUZIONE CALCOLI E TABELLA ---
+print("\n" + "="*100)
+print(f"{'RIEPILOGO PROGETTO: DIAMETRI MINIMI FUNZIONANTI':^100}")
+print("="*100)
+print(f"{'Punto 1: Smooth (L=10m)':<40} | Min OD: {min_od_1 if min_od_1 else 'N/A':>10} inch")
+print(f"{'Punto 2: Smooth (L=h)':<40} | Min OD: {min_od_2 if min_od_2 else 'N/A':>10} inch")
+print(f"{'Punto 3: Rough (Haaland)':<40} | Min OD: {min_od_3_h if min_od_3_h else 'N/A':>10} inch")
+print(f"{'Punto 3: Rough (Colebrook)':<40} | Min OD: {min_od_3_c if min_od_3_c else 'N/A':>10} inch")
+print("="*100)
 
 print("\n" + "="*110)
 print(f"{'TABELLA COMPARATIVA DIAMETRI SELEZIONATI':^110}")
