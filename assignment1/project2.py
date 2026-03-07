@@ -87,7 +87,7 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
     # gomiti
     dp_loc_bends_c = 0.5*N_bends * k_bends * 1/(2*CP.PropsSI('D', 'T', T_c+273.15, 'P', p, 'Water') * A_pipe**2)
     dp_loc_bends_h = 0.5*N_bends * k_bends * 1/(2*CP.PropsSI('D', 'T', T_h+273.15, 'P', p, 'Water') * A_pipe**2)
-    # entrata e uscita
+    # entrata e uscita !!! controllare bene il rapporto
     k_in = 0.5*(1-A_pipe/(A_HX*N_HX))
     k_out = (1- A_pipe/(A_HX*N_HX))**2
     dp_loc_HX = (k_in + k_out) * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
@@ -162,19 +162,19 @@ def save_results_to_csv(dp_dict, m, buoyancy, filename="result_ISC.csv"):
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["VOCE", "VALORE [Pa]"])
-        writer.writerow(["--- PERDITE DISTRIBUITE ---", ""])
+        writer.writerow(["--- DISTRIBUTED PRESSURE DROPS ---", ""])
         for k in ['dist_cold', 'dist_hot', 'dist_HX']:
             writer.writerow([k.replace('_', ' ').title(), round(dp_dict[k] * m**2, 4)])
-        writer.writerow(["Sotto-totale Distribuite", round(dist_total, 4)])
+        writer.writerow(["Total Distributed", round(dist_total, 4)])
         
         writer.writerow(["", ""])
-        writer.writerow(["--- PERDITE LOCALIZZATE ---", ""])
+        writer.writerow(["--- LOCALIZED PRESSURE DROPS ---", ""])
         for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX']:
             writer.writerow([k.replace('_', ' ').title(), round(dp_dict[k] * m**2, 4)])
-        writer.writerow(["Sotto-totale Localizzate", round(loc_total, 4)])
+        writer.writerow(["Total Localized", round(loc_total, 4)])
         
         writer.writerow(["", ""])
-        writer.writerow(["--- RESUME FINALE ---", ""])
+        writer.writerow(["--- FINALE RESUME ---", ""])
         writer.writerow(["Driving Force (Buoyancy)", round(buoyancy, 4)])
         writer.writerow(["Total Friction Losses", round(dist_total + loc_total, 4)])
         writer.writerow(["Mass Flow Rate [kg/s]", round(m, 4)])
@@ -220,4 +220,4 @@ print(f"{'Driving force (Buoyancy)':<35} {dp_b_res:>40.2f} Pa")
 # --- EXECUTION ---
 
 m_res, T_av_res, T_h_res, T_c_res, dp_b_res, dp_dict_res = iteration()
-save_results_to_csv(dp_dict_res, m_res, dp_b_res, filename = "C:\\black_jesus\\poli\\Magistrale Nucleare\\I_anno\\II_semestre\\Nuclear fission plants\\project\\script\\assignment1\\result_ISC.csv")
+save_results_to_csv(dp_dict_res, m_res, dp_b_res, filename=os.path.join(os.path.dirname(__file__), "result_ISC.csv"))
