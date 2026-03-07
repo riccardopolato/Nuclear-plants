@@ -250,61 +250,77 @@ table = load_diameter_data('assignment1/diameter_table.txt')
 # --- PUNTO 1 ---
 L_LIM = 10.0 
 EPSILON = 0  # Tubi lisci
-
-h_1 = solve_for_specific_diameter(OD_TEST, TH_TEST, Q_THERM, P_SYS, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=False)
-
 v_od, v_h, min_od_1 = run_optimization_cycle(table, Q_THERM, P_SYS, L_LIM, L_LIM, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=False)
 
-
 # --- PUNTO 2 ---
-h2 = solve_for_specific_diameter(OD_TEST, TH_TEST, Q_THERM, P_SYS, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=True)
-
 v_od2, v_h2 ,min_od_2= run_optimization_cycle(table, Q_THERM, P_SYS, L_LIM, L_LIM, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=True)
-plt.figure(figsize=(10, 10))
-plot_results(v_od, v_h, EPSILON, find_L=False)
-plot_results(v_od2, v_h2, EPSILON, find_L=True)
 
 # --- PUNTO 3 ---
 EPSILON_3 = 5.0e-5 # Rugosità fornita  
-h_3 = solve_for_specific_diameter(OD_TEST, TH_TEST, Q_THERM, P_SYS, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON_3, find_L=True)
-
 # Haaland
 v_od3_h, v_h3_h, min_od_3_h = run_optimization_cycle(table, Q_THERM, P_SYS, L_LIM, L_LIM, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON_3, find_L=True)
-
 # Colebrook
 v_od3_c, v_h3_c, min_od_3_c = run_optimization_cycle_colebrook(table, Q_THERM, P_SYS, L_LIM, L_LIM, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON_3, find_L=True)
 
-# Confronto
+# --- VISUALIZZAZIONE GRAFICA ---
+plt.figure(figsize=(10, 10))
+plot_results(v_od, v_h, EPSILON, find_L=False)
+plot_results(v_od2, v_h2, EPSILON, find_L=True)
+plt.tight_layout()
+
+# Grafico Punto 3
 plot_results_comparison(v_od2, v_h2, v_od3_h, v_h3_h, v_od3_c, v_h3_c, EPSILON_3)
 
 
-# --- GENERAZIONE TABELLA RIASSUNTIVA ---
+# --- CONFIGURAZIONE DIAMETRI SPECIFICI ---
+# Lista dei diametri richiesti: (OD, Thickness)
+target_diameters = [
+    (8.625, 0.322),
+    (10.750, 0.365),
+    (12.750, 0.375),
+    (14.000, 0.375)
+]
 
-print("\n" + "="*80)
-print(f"{'TABELLA RIASSUNTIVA DEL PROGETTO':^80}")
-print("="*80)
+# --- ESECUZIONE CALCOLI E TABELLA ---
+
+print("\n" + "="*110)
+print(f"{'TABELLA COMPARATIVA DIAMETRI SELEZIONATI':^110}")
+print("="*110)
 
 # Intestazione Colonne
-header = f"{'Caso / Punto':<35} | {'Min OD Valido [in]':<20} | {f'h o L per OD={OD_TEST}\" [m]':<20}"
+header = f"{'OD [in]':<10} | {'Th [in]':<10} | {'h (Punto 1) [m]':<18} | {'L=h (Punto 2) [m]':<18} | {'L=h Rough (H) [m]':<18} | {'L=h Rough (C) [m]':<18}"
 print(header)
-print("-" * 80)
+print("-" * 110)
 
-# Righe della tabella (3 cifre decimali per i risultati sull'OD specifico)
-# Punto 1: Smooth - h calculation
-print(f"{'Punto 1: Smooth (L = 10)':<35} | {min_od_1 if min_od_1 else 'N/A':<20} | {h_1:<20.3f}")
+for od, th in target_diameters:
+    # Punto 1: Smooth, L=10, trova h
+    h1_val = solve_for_specific_diameter(od, th, Q_THERM, P_SYS, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=False)
+    
+    # Punto 2: Smooth, trova L=h
+    h2_val = solve_for_specific_diameter(od, th, Q_THERM, P_SYS, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=True)
+    
+    # Punto 3: Rough (Haaland), trova L=h
+    h3_h_val = solve_for_specific_diameter(od, th, Q_THERM, P_SYS, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON_3, find_L=True)
+    
+    # Punto 3: Rough (Colebrook), trova L=h
+    # Calcoliamo Colebrook direttamente per il diametro specifico
+    D_spec, A_spec = get_pipe_geometry(od, th)
+    m_spec, vl_spec, vv_spec, rl_spec, rv_spec = calculate_massflow_and_velocity(Q_THERM, P_SYS, D_spec, A_spec)
+    
+    mu_l = CP.PropsSI('V', 'P', P_SYS, 'Q', 0, 'Water')
+    mu_v = CP.PropsSI('V', 'P', P_SYS, 'Q', 1, 'Water')
+    re_l = (rl_spec * vl_spec * D_spec) / mu_l
+    re_v = (rv_spec * vv_spec * D_spec) / mu_v
+    
+    fl_c = calculate_friction_factor_colebrook(re_l, EPSILON_3, D_spec)
+    fv_c = calculate_friction_factor_colebrook(re_v, EPSILON_3, D_spec)
+    
+    h3_c_val = calculate_L_for_h_equal_L(rl_spec, rv_spec, vl_spec, vv_spec, fl_c, fv_c, K_COLD, K_HOT, D_spec, G_CONST)
 
-# Punto 2: Smooth - L critical
-print(f"{'Punto 2: Smooth (L = h)':<35} | {min_od_2 if min_od_2 else 'N/A':<20} | {h2:<20.3f}")
+    # Formattazione riga (N/A se il diametro non è fisicamente possibile)
+    def fmt(val): return f"{val:18.3f}" if val and val > 0 else f"{'N/A':>18}"
 
-# Punto 3: Rough - Haaland
-print(f"{'Punto 3: Rough (L = h)':<35} | {min_od_3_h if min_od_3_h else 'N/A':<20} | {h_3:<20.3f}")
+    print(f"{od:<10.3f} | {th:<10.3f} | {fmt(h1_val)} | {fmt(h2_val)} | {fmt(h3_h_val)} | {fmt(h3_c_val)}")
 
-# Punto 3: Rough - Colebrook
-# Assumiamo che h_3_c sia il risultato della funzione solve_for_specific_diameter usando il metodo Colebrook
-# Se non l'hai calcolato a parte, puoi chiamare la funzione qui:
-#print(f"{'Punto 3: Rough (Colebrook)':<35} | {min_od_3_c if min_od_3_c else 'N/A':<20} | {h_3_c:<20.3f}")
-
-print("="*80)
-54
+print("="*110)
 plt.show()
-
