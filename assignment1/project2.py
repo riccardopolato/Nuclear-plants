@@ -166,7 +166,7 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
         # Calcolo nuova portata
         m_new = mass_flow_rate(deltaP_buoyancy, deltaP_friction)
         T_av_new = (T_h + T_c) / 2
-        
+
         # Verifica di convergenza
         error = abs(m_new - m) / m
         if error < tolerance:
@@ -207,12 +207,13 @@ def save_results_to_csv(dp_dict, m, buoyancy, filename):
         writer.writerow(["Total Friction Losses", round(dist_total + loc_total, 4)])
         writer.writerow(["Mass Flow Rate [kg/s]", round(m, 4)])
 
-# Dati
-# --- DATA ---
+
+# ---------- DATA ----------
 P_nom = 600e6 
 P_term = 0.01 * P_nom 
 
-# ISC Pipe
+# --- ISC ---
+# Pipe
 L_ISC, H_ISC, p_ISC = 40.0, 10.0, 70e5 
 T_sat_ISC = CP.PropsSI('T', 'P', p_ISC, 'Q', 0, 'Water') - 273.15
 od_ISC, th_ISC = 16.0, 1.031 
@@ -229,7 +230,7 @@ A_HX2_tot = 430.0
 # Pool
 T_sat = CP.PropsSI('T', 'P', 1e5, 'Q', 0, 'Water') - 273.15
 
-# --- CONFIGURAZIONE ISC ---
+# CONFIGURAZIONE ISC
 config_ISC = {
     'D_internal': id_ISC,
     'pressure': p_ISC,
@@ -253,7 +254,18 @@ config_ISC = {
     'Circuit': 'HX2'
 }
 
-# Esecuzione della iterazione
+# --- PSC ---
+# Pipe
+
+
+# HX1
+
+
+# CONFIGURAZIONE PSC
+
+
+# ---------- EXECUTION ----------
+# ITERAZIONI per ISC
 m_res, T_av_res, T_h_res, T_c_res, dp_b_res, dp_dict_res = iteration(config_ISC)
 
 # Stampa risultati finali organizzati
@@ -270,7 +282,8 @@ print(f"{'Distributed pressure drop':<35} {(dp_dict_res['dist_cold'] + dp_dict_r
 print(f"{'Localized pressure drop':<35} {(dp_dict_res['loc_bends_hot'] + dp_dict_res['loc_bends_cold'] + dp_dict_res['loc_HX']) * m_res**2:>40.2f} Pa")
 print(f"{'Driving force (Buoyancy)':<35} {dp_b_res:>40.2f} Pa")
 # Stampa tabella perdite di carico
-# --- EXECUTION ---
 
 m_res, T_av_res, T_h_res, T_c_res, dp_b_res, dp_dict_res = iteration(config_ISC)
 save_results_to_csv(dp_dict_res, m_res, dp_b_res, filename=os.path.join(os.path.dirname(__file__), "result_ISC.csv"))
+
+# ITERAZIONI per PSC
