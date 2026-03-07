@@ -2,6 +2,7 @@ import CoolProp.CoolProp as CP
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 
 # --- FUNZIONI DI CALCOLO ---
 
@@ -181,23 +182,54 @@ def plot_results(od_list, h_list, eps, find_L=False):
     plt.legend()
 
 def plot_results_comparison(od_smooth, h_smooth, od_list_haaland, h_list_haaland, od_list_colebrook, h_list_colebrook, eps):
-    """Grafico di confronto tra Haaland e Colebrook."""
+    """Grafico di confronto tra Haaland e Colebrook con Inset Plot (Zoom)."""
     if not od_list_haaland or not od_list_colebrook:
         print("Nessun dato valido da plottare.")
         return
     
-    ylabel = 'Required Length L [m]'
-    title = 'Design Optimization with roughness : Length = Height'
-    plt.figure(figsize=(10, 6))
-    plt.plot(od_smooth, h_smooth, color='gray', linestyle='-', marker='^', label='Smooth', linewidth=2)
-    plt.plot(od_list_haaland, h_list_haaland, color='green', linestyle='--', marker='o', label='Haaland', linewidth=2)
-    plt.plot(od_list_colebrook, h_list_colebrook, color='orange', linestyle=':', marker='s', label='Colebrook', linewidth=2)
-    plt.yscale('log')
-    plt.xlabel('Outside Diameter [inch]')
-    plt.ylabel(ylabel)
-    plt.title(f'{title} (ε={eps:.2e} m)')
-    plt.grid(True, which='both', alpha=0.3)
-    plt.legend()
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # --- PLOT PRINCIPALE ---
+    ax.plot(od_smooth, h_smooth, color='gray', linestyle='-', marker='^', label='Smooth', linewidth=1.5, alpha=0.6)
+    ax.plot(od_list_haaland, h_list_haaland, color='navy', linestyle='--', marker='o', label='Haaland', linewidth=2)
+    ax.plot(od_list_colebrook, h_list_colebrook, color='darkorange', linestyle=':', marker='s', label='Colebrook', linewidth=2)
+    
+    ax.set_yscale('log')
+    ax.set_xlabel('Outside Diameter [inch]', fontweight='bold')
+    ax.set_ylabel('Required Length L [m]', fontweight='bold')
+    ax.set_title(f'Design Optimization: Length = Height (ε={eps:.2e} m)', fontsize=14)
+    ax.grid(True, which='both', alpha=0.3)
+    ax.legend(loc='lower left', fontsize=10)
+
+    # --- CREAZIONE INSET (ZOOM) ---
+    # Posizioniamo il riquadro in una zona vuota (es. in basso a sinistra 'lower left')
+    # width e height sono percentuali del grafico principale
+    ax_ins = inset_axes(ax, width="45%", height="45%", loc='upper right', borderpad=3)
+    
+    # Plottiamo gli stessi dati nell'inset
+    ax_ins.plot(od_smooth, h_smooth, color='gray', linestyle='-', marker='^', alpha=0.6)
+    ax_ins.plot(od_list_haaland, h_list_haaland, color='navy', linestyle='--', marker='o')
+    ax_ins.plot(od_list_colebrook, h_list_colebrook, color='darkorange', linestyle=':', marker='s')
+    
+    # Definiamo i limiti dello zoom (8" - 14")
+    x1, x2 = 8, 14
+    # Troviamo i valori di y corrispondenti per centrare lo zoom (usiamo i valori di Colebrook come riferimento)
+    # Filtriamo i valori di h nell'intervallo x1-x2
+    y_vals = [h for x, h in zip(od_list_colebrook, h_list_colebrook) if x1 <= x <= x2]
+    y1, y2 = min(y_vals)*0.9, max(y_vals)*1.1
+    
+    ax_ins.set_xlim(x1, x2)
+    ax_ins.set_ylim(y1, y2)
+    ax_ins.set_yscale('log') # Fondamentale mantenere la scala logaritmica anche qui
+    ax_ins.grid(True, alpha=0.2)
+    
+    # Riduciamo la dimensione dei font per l'inset
+    ax_ins.tick_params(axis='both', which='major', labelsize=8)
+    
+    # Aggiungiamo i connettori (le linee che uniscono il grafico principale allo zoom)
+    mark_inset(ax, ax_ins, loc1=1, loc2=3, fc="none", ec="0.5", linestyle='--')
+
+    plt.draw()
 
 # --- MAIN SCRIPT ---
 
@@ -270,4 +302,3 @@ print("="*80)
 54
 plt.show()
 
-# ti prego dimmi che è tutto ok, non voglio dover riscrivere tutto da capo :D
