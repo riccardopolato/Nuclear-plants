@@ -172,14 +172,17 @@ def plot_results(od_list, h_list, eps, find_L=False):
     # Gestione etichetta rugosità
     condition_label = "Smooth" if eps == 0 else f"Roughness = {eps:.2e} m)"
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(od_list, h_list, color='navy', marker='o', label=condition_label)
+    
+    plt.subplot(2, 1, 1 if not find_L else 2)
+    plt.plot(od_list, h_list, color='black' if not find_L else 'navy', marker='o', label=condition_label)
+    if not find_L:
+        plt.axhline(y=10, color='red', linestyle='--', linewidth=1.5, label='Limit L = 10m', zorder=2)
     plt.yscale('log')
     plt.xlabel('Outside Diameter [inch]')
     plt.ylabel('Height h [m]' if not find_L else 'Required Length L [m]')
     plt.title('Design Optimization: Height vs Diameter' if not find_L else 'Design Optimization: Length = Height')
     plt.grid(True, which='both', alpha=0.3)
-    plt.legend()
+    plt.legend(loc='upper right')
 
 def plot_results_comparison(od_smooth, h_smooth, od_list_haaland, h_list_haaland, od_list_colebrook, h_list_colebrook, eps):
     """Grafico di confronto tra Haaland e Colebrook con Inset Plot (Zoom)."""
@@ -251,12 +254,14 @@ EPSILON = 0  # Tubi lisci
 h_1 = solve_for_specific_diameter(OD_TEST, TH_TEST, Q_THERM, P_SYS, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=False)
 
 v_od, v_h, min_od_1 = run_optimization_cycle(table, Q_THERM, P_SYS, L_LIM, L_LIM, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=False)
-plot_results(v_od, v_h, EPSILON, find_L=False)
+
 
 # --- PUNTO 2 ---
 h2 = solve_for_specific_diameter(OD_TEST, TH_TEST, Q_THERM, P_SYS, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=True)
 
 v_od2, v_h2 ,min_od_2= run_optimization_cycle(table, Q_THERM, P_SYS, L_LIM, L_LIM, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON, find_L=True)
+plt.figure(figsize=(10, 10))
+plot_results(v_od, v_h, EPSILON, find_L=False)
 plot_results(v_od2, v_h2, EPSILON, find_L=True)
 
 # --- PUNTO 3 ---
@@ -271,6 +276,7 @@ v_od3_c, v_h3_c, min_od_3_c = run_optimization_cycle_colebrook(table, Q_THERM, P
 
 # Confronto
 plot_results_comparison(v_od2, v_h2, v_od3_h, v_h3_h, v_od3_c, v_h3_c, EPSILON_3)
+
 
 # --- GENERAZIONE TABELLA RIASSUNTIVA ---
 
