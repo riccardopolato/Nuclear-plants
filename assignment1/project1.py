@@ -57,16 +57,16 @@ def calculate_friction_factor_colebrook(Re, eps, D, tolerance=1e-6, max_iteratio
         sqrt_f = np.sqrt(f)
         term = (eps / D) / 3.7 + 2.51 / (Re * sqrt_f)
         f = 1 / (-2 * np.log10(term)) ** 2
-        if abs(f - f_old) < tolerance:
+        if abs(f - f_old)/abs(f_old) < tolerance:
             return f
     
     return f
 
 def calculate_height(rho_l, rho_v, v_l, v_v, f_l, f_v, k_l, k_v, L_l, L_v, D, g=9.81):
-    """Bilancio di pressione per altezza h."""
-    term_liquid = (f_l * (L_l / D) + k_l) * (0.5 * rho_l * v_l**2)
-    term_vapor = (f_v * (L_v / D) + k_v) * (0.5 * rho_v * v_v**2)
-    h = (term_liquid + term_vapor) / ((rho_l - rho_v) * g)
+    """Bilancio di pressione per altezza h (Punto 1)."""
+    dp_liquid = (f_l * (L_l / D) + k_l) * (0.5 * rho_l * v_l**2)
+    dp_vapor = (f_v * (L_v / D) + k_v) * (0.5 * rho_v * v_v**2)
+    h = (dp_liquid + dp_vapor) / ((rho_l - rho_v) * g)
     return h
 
 def calculate_L_for_h_equal_L(rho_l, rho_v, v_l, v_v, f_l, f_v, k_l, k_v, D, g=9.81):
@@ -78,7 +78,8 @@ def calculate_L_for_h_equal_L(rho_l, rho_v, v_l, v_v, f_l, f_v, k_l, k_v, D, g=9
     denom = buoyancy_unit - fric_unit
     if denom <= 0:
         return None 
-    return dp_conc / denom
+    L = dp_conc / denom
+    return L
 
 def load_diameter_data(filepath):
     """Carica i dati dal file TXT."""
@@ -173,7 +174,7 @@ def plot_results(od_list, h_list, eps, find_L=False):
     condition_label = "Smooth" if eps == 0 else f"Roughness = {eps:.2e} m)"
 
     
-    plt.subplot(2, 1, 1 if not find_L else 2)
+    plt.figure(figsize=(10, 6))
     plt.plot(od_list, h_list, color='black' if not find_L else 'navy', marker='o', label=condition_label)
     if not find_L:
         plt.axhline(y=10, color='red', linestyle='--', linewidth=1.5, label='Limit L = 10m', zorder=2)
@@ -263,7 +264,7 @@ v_od3_h, v_h3_h, min_od_3_h = run_optimization_cycle(table, Q_THERM, P_SYS, L_LI
 v_od3_c, v_h3_c, min_od_3_c = run_optimization_cycle_colebrook(table, Q_THERM, P_SYS, L_LIM, L_LIM, L_LIM, K_COLD, K_HOT, G_CONST, EPSILON_3, find_L=True)
 
 # --- VISUALIZZAZIONE GRAFICA ---
-plt.figure(figsize=(10, 10))
+
 plot_results(v_od, v_h, EPSILON, find_L=False)
 plot_results(v_od2, v_h2, EPSILON, find_L=True)
 plt.tight_layout()
