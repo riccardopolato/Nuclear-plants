@@ -77,8 +77,9 @@ def pressure_drop_buoyancy_core(p, T_h, T_c, H2, g=9.81):
     ' Calcola la perdita di carico nel interno del core'
     rho_h = CP.PropsSI('D', 'T', T_h+273.15, 'P', p, 'Water')
     rho_c = CP.PropsSI('D', 'T', T_c+273.15, 'P', p, 'Water')
-    # considero una variazione lineare della densità rispetto alla quota
-    deltaP_buoyancy_core = g*(rho_c*H2 + 0.5*(rho_h - rho_c)*H2)
+    # la densità varia linearmente rho(z) = rho_c + (rho_h - rho_c)*z/H2
+    # per il calcolo della caduta di pressione si integra: dp=g*int(rho_c-rho(z))dz da 0 a H2
+    deltaP_buoyancy_core = g * (rho_c - rho_h) / 2 * H2
     return deltaP_buoyancy_core
 
 def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, eps_HX, A_pipe, A_HX, L_ISC, L_HX,
@@ -193,7 +194,6 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
     
     print(f"\n⚠ Avviso: max iterazioni ({max_iter}) raggiunto senza convergenza ({config['Circuit']})\n")
     return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict
-
 
 def save_results_to_csv(dp_dict, m, buoyancy, filename):
     dist_total = (dp_dict['dist_cold'] + dp_dict['dist_hot'] + dp_dict['dist_HX']) * m**2
