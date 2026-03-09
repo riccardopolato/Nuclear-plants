@@ -27,7 +27,7 @@ def reynolds_number_shell(m, p, T, d_p, od_HX):
 def friction_factor(eps, D, Re):
     ' Calcola il fattore di attrito con Haaland '
     term = ((eps/D)/3.7)**1.11 + 6.9/Re
-    return (-1.8 * np.log10(term))**-2
+    return (-1.8 * np.log10(term))**(-2)
 
 def global_heat_transfer_coefficient_HX(P, A_tot, D_ext, D_int, k, Re, p, T, f,  D_eq, Re_shell, Circuit, F):
     ' Calcola U e il delta T logaritmico per lo scambiatore'
@@ -131,8 +131,7 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         'loc_valve': dp_loc_valve,
         'loc_core': dp_core
     }
-    deltaP_friction = dp_dist_c + dp_dist_h + dp_dist_HX 
-    + dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_shell + dp_loc_valve + dp_core
+    deltaP_friction = dp_dist_c + dp_dist_h + dp_dist_HX + dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_shell + dp_loc_valve + dp_core
     return deltaP_friction, dp_dict
 
 def mass_flow_rate(deltaP_buoyancy, deltaP_friction):
@@ -177,7 +176,7 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
             m, config['N_tubes'], config['pressure'], config['D_internal'], config['id_hx'], 
             T_av, T_c, T_h, config['eps_pipe'], config['eps_hx'], config['A_pipe'], 
             config['A_hx'], config['L_circuit'], config['L_hx'], config['N_bends'], 
-            config['k_bends'], A_shell, k_shell, config['Circuit'], A_headers=0.883
+            config['k_bends'], k_shell, A_shell, config['Circuit'], A_headers=0.883
         )
         
         # Calcolo nuova portata
@@ -244,7 +243,7 @@ A_HX2 = np.pi * (id_HX2/2)**2
 A_HX2_tot = 430.0 
 
 # Pool
-T_sat = CP.PropsSI('T', 'P', 1e5, 'Q', 0, 'Water') - 273.15
+T_pool = CP.PropsSI('T', 'P', 1e5, 'Q', 0, 'Water') - 273.15
 
 
 # --- PSC ---
@@ -253,7 +252,7 @@ L_PSC, H1_PSC, H2_PSC, p_PSC = 16.0, 7.0, 3.0, 75e5
 T_sat_PSC = CP.PropsSI('T', 'P', p_PSC, 'Q', 0, 'Water') - 273.15
 od_PSC, th_PSC = 16.0, 1.031
 id_PSC, A_PSC = get_pipe_geometry(od_PSC, th_PSC)
-eps_PSC, k_bends_PSC, N_bends_PSC = 2e-4 * id_PSC, 0.45, 4
+eps_PSC, k_bends_PSC, N_bends_PSC , k_valve = 2e-4 * id_PSC, 0.45, 4, 0.12
 
 # HX1
 # U_tubes
@@ -308,7 +307,7 @@ config_ISC = {
     'D_internal': id_ISC,
     'pressure': p_ISC,
     'T_sat': T_sat_ISC,
-    'T_HX': T_sat,
+    'T_HX': T_pool,
     'eps_pipe': eps_ISC,
     'eps_hx': eps_HX2,
     'A_pipe': A_ISC,
