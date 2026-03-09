@@ -114,9 +114,11 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
     if Circuit == 'ISC':
         dp_loc_shell = k_shell * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * A_shell**2)
         dp_loc_valve = 0
+        dp_core = 0
     elif Circuit == 'PSC':
         dp_loc_shell = 0
         dp_loc_valve = k_valve * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
+        dp_core = 1.2e5/3200**2
 
     dp_dict = {
         'dist_cold': dp_dist_c,
@@ -126,9 +128,11 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         'loc_bends_cold': dp_loc_bends_c,
         'loc_HX': dp_loc_HX,
         'loc_shell': dp_loc_shell,
-        'loc_valve': dp_loc_valve
+        'loc_valve': dp_loc_valve,
+        'loc_core': dp_core
     }
-    deltaP_friction = dp_dist_c + dp_dist_h + dp_dist_HX + dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_shell + dp_loc_valve
+    deltaP_friction = dp_dist_c + dp_dist_h + dp_dist_HX 
+    + dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_shell + dp_loc_valve + dp_core
     return deltaP_friction, dp_dict
 
 def mass_flow_rate(deltaP_buoyancy, deltaP_friction):
@@ -197,7 +201,7 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
 
 def save_results_to_csv(dp_dict, m, buoyancy, filename):
     dist_total = (dp_dict['dist_cold'] + dp_dict['dist_hot'] + dp_dict['dist_HX']) * m**2
-    loc_total = (dp_dict['loc_bends_hot'] + dp_dict['loc_bends_cold'] + dp_dict['loc_HX'] + dp_dict['loc_shell'] + dp_dict['loc_valve']) * m**2
+    loc_total = (dp_dict['loc_bends_hot'] + dp_dict['loc_bends_cold'] + dp_dict['loc_HX'] + dp_dict['loc_shell'] + dp_dict['loc_valve'] + dp_dict['loc_core']) * m**2
     
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -209,7 +213,7 @@ def save_results_to_csv(dp_dict, m, buoyancy, filename):
         
         writer.writerow(["", ""])
         writer.writerow(["--- LOCALIZED PRESSURE DROPS ---", ""])
-        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX', 'loc_shell', 'loc_valve']:
+        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX', 'loc_shell', 'loc_valve', 'loc_core']:
             writer.writerow([k.replace('_', ' ').title(), round(dp_dict[k] * m**2, 4)])
         writer.writerow(["Total Localized", round(loc_total, 4)])
         
@@ -350,7 +354,6 @@ save_results_to_csv(dp_dict_res_ISC, m_res_ISC, dp_b_res_ISC, filename=os.path.j
 # ITERAZIONI per PSC
 config_PSC['T_HX'] = T_av_res_ISC # aggiorno la temperatura media ottenuta dall'iterazione ISC
 m_res_PSC, T_av_res_PSC, T_h_res_PSC, T_c_res_PSC, dp_b_res_PSC, dp_dict_res_PSC = iteration(config_PSC)
-save_results_to_csv(dp_dict_res_PSC, m_res_PSC, dp_b_res_PSC, filename=os.path.join(os.path.dirname(__file__), "result_PSC.csv"))
 
 # Stampa risultati finali organizzati
 print("\n" + "="*80)
