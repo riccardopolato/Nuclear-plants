@@ -1,6 +1,6 @@
 import CoolProp.CoolProp as CP
 import matplotlib as mpl
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as pltma 
 import numpy as np
 import csv
 import os
@@ -105,7 +105,7 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
     # entrata e uscita 
     A1 = A_HX * N_HX
     A2 = A_pipe if Circuit == 'ISC' else A_headers
-    sigma = A1 / A2
+    sigma = A2 / A1
     k_in = 0.5*(1-sigma)
     k_out = (1- sigma)**2
     dp_loc_HX = (k_in + k_out) * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
@@ -115,10 +115,12 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         dp_loc_shell = k_shell * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * A_shell**2)
         dp_loc_valve = 0
         dp_core = 0
+        dp_bends_HX = 0
     elif Circuit == 'PSC':
         dp_loc_shell = 0
         dp_loc_valve = k_valve * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
         dp_core = 1.2e5/3200**2
+        dp_bends_HX = k_bends * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
 
     dp_dict = {
         'dist_cold': dp_dist_c,
@@ -129,9 +131,10 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         'loc_HX': dp_loc_HX,
         'loc_shell': dp_loc_shell,
         'loc_valve': dp_loc_valve,
-        'loc_core': dp_core
+        'loc_core': dp_core,
+        'loc_bends_HX': dp_bends_HX
     }
-    deltaP_friction = dp_dist_c + dp_dist_h + dp_dist_HX + dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_shell + dp_loc_valve + dp_core
+    deltaP_friction = dp_dist_c + dp_dist_h + dp_dist_HX + dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_shell + dp_loc_valve + dp_core + dp_bends_HX
     return deltaP_friction, dp_dict
 
 def mass_flow_rate(deltaP_buoyancy, deltaP_friction):
@@ -200,7 +203,7 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
 
 def save_results_to_csv(dp_dict, m, buoyancy, filename):
     dist_total = (dp_dict['dist_cold'] + dp_dict['dist_hot'] + dp_dict['dist_HX']) * m**2
-    loc_total = (dp_dict['loc_bends_hot'] + dp_dict['loc_bends_cold'] + dp_dict['loc_HX'] + dp_dict['loc_shell'] + dp_dict['loc_valve'] + dp_dict['loc_core']) * m**2
+    loc_total = (dp_dict['loc_bends_hot'] + dp_dict['loc_bends_cold'] + dp_dict['loc_HX'] + dp_dict['loc_shell'] + dp_dict['loc_valve'] + dp_dict['loc_core'] + dp_dict['loc_bends_HX']) * m**2
     
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -212,7 +215,7 @@ def save_results_to_csv(dp_dict, m, buoyancy, filename):
         
         writer.writerow(["", ""])
         writer.writerow(["--- LOCALIZED PRESSURE DROPS ---", ""])
-        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX', 'loc_shell', 'loc_valve', 'loc_core']:
+        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX', 'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']:
             writer.writerow([k.replace('_', ' ').title(), round(dp_dict[k] * m**2, 4)])
         writer.writerow(["Total Localized", round(loc_total, 4)])
         
