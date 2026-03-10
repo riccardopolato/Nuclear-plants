@@ -197,6 +197,8 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-5, max_iter=100, s
     """
     m = m_init
     T_av = T_av_init
+    history_m = []
+    history_T_av = []
     # Inizializza variabili shell-side
     A_shell = D_eq = Re_shell = k_shell = None
     p_shell = T_shell = None
@@ -256,6 +258,8 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-5, max_iter=100, s
         # Calcolo nuova portata
         m_new = mass_flow_rate(deltaP_buoyancy, deltaP_friction)
         T_av_new = (T_h + T_c) / 2
+        history_m.append(m_new)
+        history_T_av.append(T_av_new)
 
         # Verifica di convergenza
         error = abs(m_new - m) / m
@@ -273,9 +277,9 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-5, max_iter=100, s
                     'T_h': T_h,
                     'T_c': T_c
                 }
-                return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict, shell_results
+                return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict, shell_results, history_m, history_T_av
             else:
-                return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict
+                return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict, history_m, history_T_av
         
         m = m_new
         T_av = T_av_new
@@ -295,9 +299,104 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-5, max_iter=100, s
             'T_h': T_h,
             'T_c': T_c
         }
-        return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict, shell_results
+        return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict, shell_results, history_m, history_T_av
     else:
-        return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict
+        return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict, history_m, history_T_av
+
+def plot_convergence(history_m_ISC, history_T_av_ISC, history_m_PSC, history_T_av_PSC, out_dir):
+    """Grafico di convergenza della portata e della temperatura media per ISC e PSC."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+    fig.suptitle('Iterative convergence', fontsize=14, fontweight='bold')
+
+    iters_ISC = range(1, len(history_m_ISC) + 1)
+    iters_PSC = range(1, len(history_m_PSC) + 1)
+
+    ax1.plot(iters_ISC, history_m_ISC, marker='o', color='steelblue', label='ISC')
+    ax1.plot(iters_PSC, history_m_PSC, marker='s', color='tomato',    label='PSC')
+    ax1.set_xlabel('Iteration')
+    ax1.set_ylabel('Mass flow rate [kg/s]')
+    ax1.set_title('Mass flow rate convergence')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(iters_ISC, history_T_av_ISC, marker='o', color='steelblue', label='ISC')
+    ax2.plot(iters_PSC, history_T_av_PSC, marker='s', color='tomato',    label='PSC')
+    ax2.set_xlabel('Iteration')
+    ax2.set_ylabel('Average temperature [°C]')
+    ax2.set_title('Average temperature convergence')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, 'convergence.png'), dpi=150)
+
+
+def plot_temperature_summary(T_c_ISC, T_av_ISC, T_h_ISC, T_sat_ISC,
+                             T_c_PSC, T_av_PSC, T_h_PSC, T_sat_PSC, out_dir):
+    """Bar chart comparativo di T_c, T_av, T_h e T_sat per ISC e PSC."""
+    labels = ['T cold\n(outlet)', 'T average', 'T hot\n(inlet)', 'T sat\n(limit)']
+    vals_ISC = [T_c_ISC, T_av_ISC, T_h_ISC, T_sat_ISC]
+    vals_PSC = [T_c_PSC, T_av_PSC, T_h_PSC, T_sat_PSC]
+
+    x = np.arange(len(labels))
+    w = 0.35
+    fig, ax = plt.subplots(figsize=(9, 6))
+    bars_ISC = ax.bar(x - w/2, vals_ISC, w, label='ISC', color='steelblue')
+    bars_PSC = ax.bar(x + w/2, vals_PSC, w, label='PSC', color='tomato')
+
+    for bar in list(bars_ISC) + list(bars_PSC):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.4,
+                f'{bar.get_height():.1f}', ha='center', va='bottom', fontsize=9)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel('Temperature [°C]')
+    ax.set_title('Coolant temperatures: ISC vs PSC', fontsize=13, fontweight='bold')
+    ax.legend()
+    ax.grid(True, axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, 'temperatures_summary.png'), dpi=150)
+
+
+def plot_pressure_drop_pies(dp_dict_ISC, m_ISC, dp_dict_PSC, m_PSC, out_dir):
+    """Torte affiancate: contributo percentuale di ogni componente alle perdite totali per ISC e PSC."""
+    component_labels = [
+        ('dist_cold',       'Distributed - cold pipe'),
+        ('dist_hot',        'Distributed - hot pipe'),
+        ('dist_HX',         'Distributed - HX tubes'),
+        ('loc_bends_hot',   'Localized - bends hot'),
+        ('loc_bends_cold',  'Localized - bends cold'),
+        ('loc_HX',          'Localized - HX in/out'),
+        ('loc_pipe_header', 'Localized - pipe↔header'),
+        ('loc_shell',       'Localized - shell'),
+        ('loc_valve',       'Localized - valve'),
+        ('loc_core',        'Localized - core'),
+        ('loc_bends_HX',    'Localized - bends HX'),
+    ]
+    keys   = [k for k, _ in component_labels]
+    labels = [l for _, l in component_labels]
+
+    vals_ISC = np.array([dp_dict_ISC[k] * m_ISC**2 for k in keys])
+    vals_PSC = np.array([dp_dict_PSC[k] * m_PSC**2 for k in keys])
+
+    # Tieni solo le voci con valore > 0
+    mask_ISC = vals_ISC > 0
+    mask_PSC = vals_PSC > 0
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+    fig.suptitle('Pressure drop breakdown [%]: ISC vs PSC', fontsize=14, fontweight='bold')
+
+    ax1.pie(vals_ISC[mask_ISC], labels=np.array(labels)[mask_ISC],
+            autopct='%1.1f%%', startangle=140, pctdistance=0.82)
+    ax1.set_title('ISC')
+
+    ax2.pie(vals_PSC[mask_PSC], labels=np.array(labels)[mask_PSC],
+            autopct='%1.1f%%', startangle=140, pctdistance=0.82)
+    ax2.set_title('PSC')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, 'pressure_drop_pies.png'), dpi=150)
+
 
 def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
                         dp_dict_PSC, m_PSC, dist_PSC, loc_PSC, dp_b_PSC, out_dir):
@@ -503,7 +602,7 @@ config_ISC = {
 }
 # ---------- EXECUTION ----------
 # ITERAZIONI per ISC
-m_res_ISC, T_av_res_ISC, T_h_res_ISC, T_c_res_ISC, dp_b_res_ISC, dp_dict_res_ISC, dist_total_ISC, loc_total_ISC, k_dict_ISC, shell_results_ISC = iteration(config_ISC)
+m_res_ISC, T_av_res_ISC, T_h_res_ISC, T_c_res_ISC, dp_b_res_ISC, dp_dict_res_ISC, dist_total_ISC, loc_total_ISC, k_dict_ISC, shell_results_ISC, history_m_ISC, history_T_av_ISC = iteration(config_ISC)
 
 # Stampa risultati finali organizzati
 print("\n" + "="*80)
@@ -523,7 +622,7 @@ save_results_to_csv(dp_dict_res_ISC, m_res_ISC, dp_b_res_ISC, dist_total_ISC, lo
 print("\n" + "="*80)
 # ITERAZIONI per PSC, riutilizzando i parametri shell-side calcolati in ISC
 config_PSC['T_HX'] = T_av_res_ISC # aggiorno la temperatura media ottenuta dall'iterazione ISC
-m_res_PSC, T_av_res_PSC, T_h_res_PSC, T_c_res_PSC, dp_b_res_PSC, dp_dict_res_PSC, dist_total_PSC, loc_total_PSC, k_dict_PSC = iteration(config_PSC, shell_params=shell_results_ISC)
+m_res_PSC, T_av_res_PSC, T_h_res_PSC, T_c_res_PSC, dp_b_res_PSC, dp_dict_res_PSC, dist_total_PSC, loc_total_PSC, k_dict_PSC, history_m_PSC, history_T_av_PSC = iteration(config_PSC, shell_params=shell_results_ISC)
 
 # Stampa risultati finali organizzati
 print("\n" + "="*80)
@@ -542,8 +641,25 @@ print(f"{'Driving force (Buoyancy)':<35} {dp_b_res_PSC:>40.2f} Pa")
 save_results_to_csv(dp_dict_res_PSC, m_res_PSC, dp_b_res_PSC, dist_total_PSC, loc_total_PSC, filename=os.path.join(os.path.dirname(__file__), "result_PSC.csv"), k_dict=k_dict_PSC)
 
 # ---------- PLOT ----------
+out_dir = os.path.dirname(__file__)
+
+plot_convergence(history_m_ISC, history_T_av_ISC, history_m_PSC, history_T_av_PSC, out_dir)
+
+plot_temperature_summary(
+    T_c_res_ISC, T_av_res_ISC, T_h_res_ISC, T_sat_ISC,
+    T_c_res_PSC, T_av_res_PSC, T_h_res_PSC, T_sat_PSC,
+    out_dir
+)
+
+plot_pressure_drop_pies(
+    dp_dict_res_ISC, m_res_ISC,
+    dp_dict_res_PSC, m_res_PSC,
+    out_dir
+)
+
 plot_pressure_drops(
     dp_dict_res_ISC, m_res_ISC, dist_total_ISC, loc_total_ISC, dp_b_res_ISC,
     dp_dict_res_PSC, m_res_PSC, dist_total_PSC, loc_total_PSC, dp_b_res_PSC,
-    out_dir=os.path.dirname(__file__)
+    out_dir=out_dir
 )
+plt.show()
