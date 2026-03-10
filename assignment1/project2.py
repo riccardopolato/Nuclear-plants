@@ -1,7 +1,6 @@
 import CoolProp.CoolProp as CP
-import matplotlib as mpl
-import matplotlib.pyplot as pltma 
 import numpy as np
+import matplotlib.pyplot as plt
 import csv
 import os
 
@@ -17,28 +16,29 @@ def reynolds_number(m, D_int, p, T):
     Re = 4*m / (np.pi*D_int*mu)
     return Re
 
-def reynolds_number_shell(m, p, T, d_p, od_HX, A_shell):
+def reynolds_number_shell(m, p, T, d_p, od_HX, D_eq, A_shell):
     ' Calcola il numero di Reynolds per il lato shell (considero la total cross section dei tubi moltiplicata per il numero di tubi)'
     mu = CP.PropsSI('V', 'T', T+273.15, 'P', p, 'Water') # viscosità dinamica
-    D_eq = (2*np.sqrt(3)*d_p**2)/(np.pi*od_HX)-od_HX
     Re = m*D_eq / (A_shell*mu) # controllare
-    return D_eq, Re
+    return Re
 
 def friction_factor(eps, D, Re):
     ' Calcola il fattore di attrito con Haaland '
     term = ((eps/D)/3.7)**1.11 + 6.9/Re
     return (-1.8 * np.log10(term))**(-2)
 
-def global_heat_transfer_coefficient_HX(P, A_tot, D_ext, D_int, k, Re, p, T, f,  D_eq, Re_shell, Circuit, F):
+def global_heat_transfer_coefficient_HX(P, A_tot, D_ext, D_int, k, Re, p, T, f,  D_eq, Re_shell, Circuit, F, p_shell=None, T_shell=None):
     ' Calcola U e il delta T logaritmico per lo scambiatore'
     
-    # Proprietà del fluido interno (da CoolProp)
+    # Proprietà del fluido lato tubi (da CoolProp)
     Pr = CP.PropsSI('Prandtl', 'P', p, 'T', T + 273.15, 'Water')
     k_fluid = CP.PropsSI('L', 'P', p, 'T', T + 273.15, 'Water')
 
     # Convezione esterna
     if Circuit == 'PSC':
-        h_ext = 0.351*Re_shell**0.55*k/D_eq*Pr**(1/3)
+        # h_ext è lato shell (acqua ISC): usa le proprietà del fluido shell
+        Pr_shell = CP.PropsSI('Prandtl', 'P', p_shell, 'T', T_shell + 273.15, 'Water')
+        h_ext = 0.351*Re_shell**0.55*k/D_eq*Pr_shell**(1/3)
     elif Circuit == 'ISC':
         flux = P / A_tot
         h_ext = flux**(1-1/3.86) * 2.257**(1/3.86)
@@ -152,7 +152,7 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
     elif Circuit == 'PSC':
         dp_loc_shell = 0
         dp_loc_valve = k_valve * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_pipe)**2)
-        dp_core = 1.2e5/3200**2
+        dp_core = 1.2e5/3200**2  # perdita di carico nel core: deltaP_core [Pa] / m^2 [kg^2/s^2]
         dp_bends_HX = k_bends * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
         
 
@@ -185,29 +185,45 @@ def mass_flow_rate(deltaP_buoyancy, deltaP_friction):
     ' Calcola la portata massica per una potenza termica data'
     return np.sqrt(deltaP_buoyancy / deltaP_friction)
 
-def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
+def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100, shell_params=None):
     """
     Itera il calcolo della portata aggiornando T_av come media tra T_h e T_c.
+    Se shell_params è fornito (dict con chiavi 'A_shell', 'D_eq', 'Re_shell', 'k_shell'), li usa invece di ricalcolare.
     """
     m = m_init
     T_av = T_av_init
+    # Inizializza variabili shell-side
+    A_shell = D_eq = Re_shell = k_shell = None
+    p_shell = T_shell = None
+    if shell_params is not None:
+        A_shell = shell_params.get('A_shell')
+        D_eq = shell_params.get('D_eq')
+        Re_shell = shell_params.get('Re_shell')
+        k_shell = shell_params.get('k_shell')
+        p_shell = shell_params.get('pressure')
+        T_shell = shell_params.get('T_av')
+    elif config['Circuit'] == 'ISC':
+        # A_shell e D_eq dipendono solo dalla geometria, sono costanti: calcolo una volta sola
+        A_shell = config['D_shell']/config['d_pitch']*(config['d_pitch']-config['od_hx1'])*config['L_baffles']
+        D_eq = (2*np.sqrt(3)*config['d_pitch']**2)/(np.pi*config['od_hx1'])-config['od_hx1']
     
     for iter_num in range(max_iter):
         # Calcolo del numero di Reynolds e fattore di attrito per lo scambiatore
         Re_av = reynolds_number(m, config['id_hx'], config['pressure'], T_av)
         f_av = friction_factor(config['eps_hx'], config['id_hx'], Re_av)
         
-        # Caclolo il Diametro equivalente e il Reynolds nel lato shell(HX1)
-        A_shell = config['D_shell']/config['d_pitch']*(config['d_pitch']-config['od_hx1'])*config['L_baffles']
-        D_eq, Re_shell = reynolds_number_shell(
-            m, config['pressure'], T_av, config['d_pitch'], config['od_hx1'], A_shell)
-        k_shell = 8*0.227/Re_shell**0.193*config['D_shell']/D_eq*(config['N_buffles']+1)
-
+        # Calcolo Re_shell e k_shell nel lato shell (dipendono da m e T_av, si aggiornano ad ogni iterazione)
+        if config['Circuit'] == 'ISC':
+            Re_shell = reynolds_number_shell(
+                m, config['pressure'], T_av, config['d_pitch'], config['od_hx1'], D_eq, A_shell)
+            k_shell = 8*0.227/Re_shell**0.193*config['D_shell']/D_eq*(config['N_baffles']+1)
+        # Per PSC, se shell_params è fornito, i valori sono già stati assegnati all'inizio e non serve riassegnare
+        
         # Calcolo U e deltaT_lm nello scambiatore
         U, deltaT_lm = global_heat_transfer_coefficient_HX(
             config['P_term'], config['A_hx_tot'], config['od_hx'], config['id_hx'], 
             config['k_hx'], Re_av, config['pressure'], T_av, f_av,  D_eq, Re_shell, 
-            config['Circuit'], config['Correction_f'])
+            config['Circuit'], config['Correction_f'], p_shell=p_shell, T_shell=T_shell)
         
         # Calcolo temperature caldo e freddo
         T_c, T_h = temperature_ISC(T_av, config['pressure'], config['T_HX'], deltaT_lm, m, config['P_term'])
@@ -223,7 +239,8 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
             m, config['N_tubes'], config['pressure'], config['D_internal'], config['id_hx'],
             T_av, T_c, T_h, config['eps_pipe'], config['eps_hx'], config['A_pipe'],
             config['A_hx'], config['L_circuit'], config['L_hx'], config['N_bends'],
-            config['k_bends'], k_shell, A_shell, config['Circuit'], A_headers=0.883
+            config['k_bends'], k_shell, A_shell, config['Circuit'],
+            A_headers=config.get('A_headers', 0.883)
         )
         
         # Calcolo nuova portata
@@ -234,7 +251,19 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
         error = abs(m_new - m) / m
         if error < tolerance:
             print(f"\n✓ Convergenza raggiunta in {iter_num+1} iterazioni ({config['Circuit']})\n")
-            return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict
+            # Se ISC, restituisci anche i parametri shell-side (incluse p e T_av per calcolo Pr_shell in PSC)
+            if config['Circuit'] == 'ISC':
+                shell_results = {
+                    'A_shell': A_shell,
+                    'D_eq': D_eq,
+                    'Re_shell': Re_shell,
+                    'k_shell': k_shell,
+                    'pressure': config['pressure'],
+                    'T_av': T_av_new
+                }
+                return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict, shell_results
+            else:
+                return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict
         
         m = m_new
         T_av = T_av_new
@@ -243,8 +272,86 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
             print(f"Iterazione {iter_num+1} ({config['Circuit']}): m = {m:.2f} kg/s, T_av = {T_av:.2f} °C, errore = {error:.4f}")
     
     print(f"\n⚠ Avviso: max iterazioni ({max_iter}) raggiunto senza convergenza ({config['Circuit']})\n")
-    return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict
+    if config['Circuit'] == 'ISC':
+        shell_results = {
+            'A_shell': A_shell,
+            'D_eq': D_eq,
+            'Re_shell': Re_shell,
+            'k_shell': k_shell,
+            'pressure': config['pressure'],
+            'T_av': T_av
+        }
+        return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict, shell_results
+    else:
+        return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict
 
+def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
+                        dp_dict_PSC, m_PSC, dist_PSC, loc_PSC, dp_b_PSC, out_dir):
+    """Genera due grafici affiancati: dettaglio per componente e riepilogo aggregato."""
+
+    # Etichette leggibili per ogni componente
+    component_labels = [
+        ('dist_cold',       'Distributed - cold pipe'),
+        ('dist_hot',        'Distributed - hot pipe'),
+        ('dist_HX',         'Distributed - HX tubes'),
+        ('loc_bends_hot',   'Localized - bends hot'),
+        ('loc_bends_cold',  'Localized - bends cold'),
+        ('loc_HX',          'Localized - HX inlet/outlet'),
+        ('loc_pipe_header', 'Localized - pipe↔header'),
+        ('loc_shell',       'Localized - shell'),
+        ('loc_valve',       'Localized - valve'),
+        ('loc_core',        'Localized - core'),
+        ('loc_bends_HX',    'Localized - bends HX'),
+    ]
+    keys   = [k for k, _ in component_labels]
+    labels = [l for _, l in component_labels]
+
+    vals_ISC = [dp_dict_ISC[k] * m_ISC**2 for k in keys]
+    vals_PSC = [dp_dict_PSC[k] * m_PSC**2 for k in keys]
+
+    color_ISC, color_PSC = 'steelblue', 'tomato'
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+    fig.suptitle('Pressure drop comparison: ISC vs PSC', fontsize=14, fontweight='bold')
+
+    # --- Grafico 1: dettaglio per componente (barre orizzontali) ---
+    y = np.arange(len(keys))
+    h = 0.35
+    ax1.barh(y + h/2, vals_ISC, h, label='ISC', color=color_ISC)
+    ax1.barh(y - h/2, vals_PSC, h, label='PSC', color=color_PSC)
+    ax1.set_yticks(y)
+    ax1.set_yticklabels(labels)
+    ax1.set_xlabel('Pressure drop [Pa]')
+    ax1.set_title('Detail by component')
+    ax1.axvline(0, color='black', linewidth=0.7)
+    ax1.legend()
+
+    # --- Grafico 2: riepilogo aggregato ---
+    categories = ['Distributed', 'Localized', 'Buoyancy\n(driving force)']
+    vals_sum_ISC = [dist_ISC, loc_ISC, dp_b_ISC]
+    vals_sum_PSC = [dist_PSC, loc_PSC, dp_b_PSC]
+
+    x = np.arange(len(categories))
+    w = 0.35
+    bars_ISC = ax2.bar(x - w/2, vals_sum_ISC, w, label='ISC', color=color_ISC)
+    bars_PSC = ax2.bar(x + w/2, vals_sum_PSC, w, label='PSC', color=color_PSC)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(categories)
+    ax2.set_ylabel('Pressure drop [Pa]')
+    ax2.set_title('Summary: distributed vs localized vs driving force')
+    ax2.legend()
+    # Aggiunge i valori sopra le barre
+    for bar in bars_ISC:
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.01,
+                 f'{bar.get_height():.0f}', ha='center', va='bottom', fontsize=8)
+    for bar in bars_PSC:
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.01,
+                 f'{bar.get_height():.0f}', ha='center', va='bottom', fontsize=8)
+
+    plt.tight_layout()
+    out_path = os.path.join(out_dir, 'pressure_drops_comparison.png')
+    plt.savefig(out_path, dpi=150)
+    
 def save_results_to_csv(dp_dict, m, buoyancy, dist_total, loc_total, filename, k_dict=None):
 
     with open(filename, mode='w', newline='') as file:
@@ -316,7 +423,7 @@ F_T = 0.7
 # Shell side
 d_p = 28.5e-3
 D_shell = 1.5
-N_buffles, l_baffles = 2, 1.6
+N_baffles, l_baffles = 2, 1.6
 
 
 
@@ -347,7 +454,7 @@ config_PSC = {
     'Correction_f': F_T,
     'd_pitch': d_p,
     'D_shell': D_shell,
-    'N_buffles': N_buffles,
+    'N_baffles': N_baffles,
     'L_baffles': l_baffles
 }
 
@@ -377,12 +484,12 @@ config_ISC = {
     'Correction_f': 1.0,
     'd_pitch': d_p,
     'D_shell': D_shell,
-    'N_buffles': N_buffles,
+    'N_baffles': N_baffles,
     'L_baffles': l_baffles
 }
 # ---------- EXECUTION ----------
 # ITERAZIONI per ISC
-m_res_ISC, T_av_res_ISC, T_h_res_ISC, T_c_res_ISC, dp_b_res_ISC, dp_dict_res_ISC, dist_total_ISC, loc_total_ISC, k_dict_ISC = iteration(config_ISC)
+m_res_ISC, T_av_res_ISC, T_h_res_ISC, T_c_res_ISC, dp_b_res_ISC, dp_dict_res_ISC, dist_total_ISC, loc_total_ISC, k_dict_ISC, shell_results_ISC = iteration(config_ISC)
 
 # Stampa risultati finali organizzati
 print("\n" + "="*80)
@@ -399,10 +506,10 @@ print(f"{'Localized pressure drop':<35} {loc_total_ISC:>40.2f} Pa")
 print(f"{'Driving force (Buoyancy)':<35} {dp_b_res_ISC:>40.2f} Pa")
 # Stampa tabella perdite di carico
 save_results_to_csv(dp_dict_res_ISC, m_res_ISC, dp_b_res_ISC, dist_total_ISC, loc_total_ISC, filename=os.path.join(os.path.dirname(__file__), "result_ISC.csv"), k_dict=k_dict_ISC)
-
-# ITERAZIONI per PSC
+print("\n" + "="*80)
+# ITERAZIONI per PSC, riutilizzando i parametri shell-side calcolati in ISC
 config_PSC['T_HX'] = T_av_res_ISC # aggiorno la temperatura media ottenuta dall'iterazione ISC
-m_res_PSC, T_av_res_PSC, T_h_res_PSC, T_c_res_PSC, dp_b_res_PSC, dp_dict_res_PSC, dist_total_PSC, loc_total_PSC, k_dict_PSC = iteration(config_PSC)
+m_res_PSC, T_av_res_PSC, T_h_res_PSC, T_c_res_PSC, dp_b_res_PSC, dp_dict_res_PSC, dist_total_PSC, loc_total_PSC, k_dict_PSC = iteration(config_PSC, shell_params=shell_results_ISC)
 
 # Stampa risultati finali organizzati
 print("\n" + "="*80)
@@ -419,3 +526,10 @@ print(f"{'Localized pressure drop':<35} {loc_total_PSC:>40.2f} Pa")
 print(f"{'Driving force (Buoyancy)':<35} {dp_b_res_PSC:>40.2f} Pa")
 # Stampa tabella perdite di carico
 save_results_to_csv(dp_dict_res_PSC, m_res_PSC, dp_b_res_PSC, dist_total_PSC, loc_total_PSC, filename=os.path.join(os.path.dirname(__file__), "result_PSC.csv"), k_dict=k_dict_PSC)
+
+# ---------- PLOT ----------
+plot_pressure_drops(
+    dp_dict_res_ISC, m_res_ISC, dist_total_ISC, loc_total_ISC, dp_b_res_ISC,
+    dp_dict_res_PSC, m_res_PSC, dist_total_PSC, loc_total_PSC, dp_b_res_PSC,
+    out_dir=os.path.dirname(__file__)
+)
