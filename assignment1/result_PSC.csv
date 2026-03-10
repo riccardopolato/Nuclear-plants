@@ -1,25 +1,25 @@
 VOCE,VALORE [Pa]
 --- DISTRIBUTED PRESSURE DROPS ---,
-Dist Cold,110.6779
-Dist Hot,111.8683
-Dist Hx,619.8847
-Total Distributed,842.4309
+Dist Cold,110.6677
+Dist Hot,111.858
+Dist Hx,619.8327
+Total Distributed,842.3584
 ,
 --- LOCALIZED PRESSURE DROPS ---,
-Loc Bends Hot,305.297
-Loc Bends Cold,298.4718
-Loc Hx,43.427
-Loc Pipe Header,206.8105
+Loc Bends Hot,305.2683
+Loc Bends Cold,298.4434
+Loc Hx,43.4229
+Loc Pipe Header,206.791
 Loc Shell,0.0
-Loc Valve,20.1157
-Loc Core,35.7943
-Loc Bends Hx,19.5356
-Total Localized,929.452
+Loc Valve,20.1138
+Loc Core,36.0381
+Loc Bends Hx,19.5338
+Total Localized,929.6112
 ,
 --- FINALE RESUME ---,
-Driving Force (Buoyancy),1771.8828
-Total Friction Losses,1771.8828
-Mass Flow Rate [kg/s],55.267
+Driving Force (Buoyancy),1771.9696
+Total Friction Losses,1771.9696
+Mass Flow Rate [kg/s],55.2644
 ,
 --- K LOSS COEFFICIENTS ---,
 k_shell,49.676082
