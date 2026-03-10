@@ -9,6 +9,7 @@ Total Distributed,932.8572
 Loc Bends Hot,115.7792
 Loc Bends Cold,113.8527
 Loc Hx,209.5083
+Loc Pipe Header,0.0
 Loc Shell,193.8508
 Loc Valve,0.0
 Loc Core,0.0
@@ -19,3 +20,10 @@ Total Localized,632.9909
 Driving Force (Buoyancy),1565.8481
 Total Friction Losses,1565.8481
 Mass Flow Rate [kg/s],68.5818
+,
+--- K LOSS COEFFICIENTS ---,
+k_shell,49.669937
+k_in,0.345076
+k_out,0.47631
+k_in_header,0.0
+k_out_header,0.0

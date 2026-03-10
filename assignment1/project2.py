@@ -103,19 +103,45 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
     dp_loc_bends_c = 0.5*N_bends * k_bends * 1/(2*CP.PropsSI('D', 'T', T_c+273.15, 'P', p, 'Water') * A_pipe**2)
     dp_loc_bends_h = 0.5*N_bends * k_bends * 1/(2*CP.PropsSI('D', 'T', T_h+273.15, 'P', p, 'Water') * A_pipe**2)
 
-    # entrata e uscita (CONTROLLARE)
-    A1 = A_HX * N_HX
-    A2 = A_pipe if Circuit == 'ISC' else A_headers
-    # Sigma deve essere sempre < 1 (Area stretta / Area larga)
-    if A1 < A2:
-        sigma = A1 / A2
-        A_narrow = A1
-    else:
-        sigma = A2 / A1
-        A_narrow = A2
-    k_in = 0.5*(1-sigma)
-    k_out = (1- sigma)**2
-    dp_loc_HX = (k_in + k_out) * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_narrow)**2)
+    # entrata e uscita
+    A_HX_tot = A_HX * N_HX
+    rho_av = CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water')
+
+    if Circuit == 'ISC':
+        # Transizione unica: main pipe <-> HX tubes
+        if A_HX_tot < A_pipe:
+            sigma = A_HX_tot / A_pipe
+            A_narrow = A_HX_tot
+        else:
+            sigma = A_pipe / A_HX_tot
+            A_narrow = A_pipe
+        k_in = 0.5*(1-sigma)
+        k_out = (1-sigma)**2
+        dp_loc_HX = (k_in + k_out) * 1/(2*rho_av * A_narrow**2)
+        k_in_header, k_out_header, dp_loc_pipe_header = 0.0, 0.0, 0.0
+
+    elif Circuit == 'PSC':
+        # Transizione 1: main pipe <-> header
+        if A_pipe < A_headers:
+            sigma_ph = A_pipe / A_headers
+            A_narrow_ph = A_pipe
+        else:
+            sigma_ph = A_headers / A_pipe
+            A_narrow_ph = A_headers
+        k_in_header = 0.5*(1-sigma_ph)
+        k_out_header = (1-sigma_ph)**2
+        dp_loc_pipe_header = (k_in_header + k_out_header) * 1/(2*rho_av * A_narrow_ph**2)
+
+        # Transizione 2: header <-> HX tubes
+        if A_HX_tot < A_headers:
+            sigma = A_HX_tot / A_headers
+            A_narrow = A_HX_tot
+        else:
+            sigma = A_headers / A_HX_tot
+            A_narrow = A_headers
+        k_in = 0.5*(1-sigma)
+        k_out = (1-sigma)**2
+        dp_loc_HX = (k_in + k_out) * 1/(2*rho_av * A_narrow**2)
 
     #perdite nel shell solo lato ISC
     if Circuit == 'ISC':
@@ -128,6 +154,7 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         dp_loc_valve = k_valve * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_pipe)**2)
         dp_core = 1.2e5/3200**2
         dp_bends_HX = k_bends * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
+        
 
     dp_dict = {
         'dist_cold': dp_dist_c,
@@ -136,15 +163,23 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         'loc_bends_hot': dp_loc_bends_h,
         'loc_bends_cold': dp_loc_bends_c,
         'loc_HX': dp_loc_HX,
+        'loc_pipe_header': dp_loc_pipe_header,
         'loc_shell': dp_loc_shell,
         'loc_valve': dp_loc_valve,
         'loc_core': dp_core,
         'loc_bends_HX': dp_bends_HX
     }
+    k_dict = {
+        'k_shell': k_shell,
+        'k_in': k_in,
+        'k_out': k_out,
+        'k_in_header': k_in_header,
+        'k_out_header': k_out_header
+    }
     dist_total = dp_dist_c + dp_dist_h + dp_dist_HX
-    loc_total = dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_shell + dp_loc_valve + dp_core + dp_bends_HX
+    loc_total = dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_pipe_header + dp_loc_shell + dp_loc_valve + dp_core + dp_bends_HX
     deltaP_friction = dist_total + loc_total
-    return deltaP_friction, dp_dict, dist_total, loc_total
+    return deltaP_friction, dp_dict, dist_total, loc_total, k_dict
 
 def mass_flow_rate(deltaP_buoyancy, deltaP_friction):
     ' Calcola la portata massica per una potenza termica data'
@@ -184,7 +219,7 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
             deltaP_buoyancy = pressure_drop_buoyancy_core(config['pressure'], T_h, T_c, config['H'][1]) + pressure_drop_buoyancy(config['pressure'], T_h, T_c, config['H'][0])
         
         # Calcolo perdite di carico per attrito nel circuito completo
-        deltaP_friction, dp_dict, dist_total, loc_total = pressure_drop_friction(
+        deltaP_friction, dp_dict, dist_total, loc_total, k_dict = pressure_drop_friction(
             m, config['N_tubes'], config['pressure'], config['D_internal'], config['id_hx'],
             T_av, T_c, T_h, config['eps_pipe'], config['eps_hx'], config['A_pipe'],
             config['A_hx'], config['L_circuit'], config['L_hx'], config['N_bends'],
@@ -199,7 +234,7 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
         error = abs(m_new - m) / m
         if error < tolerance:
             print(f"\n✓ Convergenza raggiunta in {iter_num+1} iterazioni ({config['Circuit']})\n")
-            return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2
+            return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict
         
         m = m_new
         T_av = T_av_new
@@ -208,9 +243,9 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100):
             print(f"Iterazione {iter_num+1} ({config['Circuit']}): m = {m:.2f} kg/s, T_av = {T_av:.2f} °C, errore = {error:.4f}")
     
     print(f"\n⚠ Avviso: max iterazioni ({max_iter}) raggiunto senza convergenza ({config['Circuit']})\n")
-    return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2
+    return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict
 
-def save_results_to_csv(dp_dict, m, buoyancy, dist_total, loc_total, filename):
+def save_results_to_csv(dp_dict, m, buoyancy, dist_total, loc_total, filename, k_dict=None):
 
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -222,7 +257,7 @@ def save_results_to_csv(dp_dict, m, buoyancy, dist_total, loc_total, filename):
         
         writer.writerow(["", ""])
         writer.writerow(["--- LOCALIZED PRESSURE DROPS ---", ""])
-        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX', 'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']:
+        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX', 'loc_pipe_header', 'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']:
             writer.writerow([k.replace('_', ' ').title(), round(dp_dict[k] * m**2, 4)])
         writer.writerow(["Total Localized", round(loc_total, 4)])
         
@@ -231,6 +266,11 @@ def save_results_to_csv(dp_dict, m, buoyancy, dist_total, loc_total, filename):
         writer.writerow(["Driving Force (Buoyancy)", round(buoyancy, 4)])
         writer.writerow(["Total Friction Losses", round(dist_total + loc_total, 4)])
         writer.writerow(["Mass Flow Rate [kg/s]", round(m, 4)])
+        if k_dict is not None:
+            writer.writerow(["" , ""])
+            writer.writerow(["--- K LOSS COEFFICIENTS ---", ""])
+            for k, v in k_dict.items():
+                writer.writerow([k, round(v, 6)])
 
 
 # ---------- DATA ----------
@@ -342,7 +382,7 @@ config_ISC = {
 }
 # ---------- EXECUTION ----------
 # ITERAZIONI per ISC
-m_res_ISC, T_av_res_ISC, T_h_res_ISC, T_c_res_ISC, dp_b_res_ISC, dp_dict_res_ISC, dist_total_ISC, loc_total_ISC = iteration(config_ISC)
+m_res_ISC, T_av_res_ISC, T_h_res_ISC, T_c_res_ISC, dp_b_res_ISC, dp_dict_res_ISC, dist_total_ISC, loc_total_ISC, k_dict_ISC = iteration(config_ISC)
 
 # Stampa risultati finali organizzati
 print("\n" + "="*80)
@@ -358,11 +398,11 @@ print(f"{'Distributed pressure drop':<35} {dist_total_ISC:>40.2f} Pa")
 print(f"{'Localized pressure drop':<35} {loc_total_ISC:>40.2f} Pa")
 print(f"{'Driving force (Buoyancy)':<35} {dp_b_res_ISC:>40.2f} Pa")
 # Stampa tabella perdite di carico
-save_results_to_csv(dp_dict_res_ISC, m_res_ISC, dp_b_res_ISC, dist_total_ISC, loc_total_ISC, filename=os.path.join(os.path.dirname(__file__), "result_ISC.csv"))
+save_results_to_csv(dp_dict_res_ISC, m_res_ISC, dp_b_res_ISC, dist_total_ISC, loc_total_ISC, filename=os.path.join(os.path.dirname(__file__), "result_ISC.csv"), k_dict=k_dict_ISC)
 
 # ITERAZIONI per PSC
 config_PSC['T_HX'] = T_av_res_ISC # aggiorno la temperatura media ottenuta dall'iterazione ISC
-m_res_PSC, T_av_res_PSC, T_h_res_PSC, T_c_res_PSC, dp_b_res_PSC, dp_dict_res_PSC, dist_total_PSC, loc_total_PSC = iteration(config_PSC)
+m_res_PSC, T_av_res_PSC, T_h_res_PSC, T_c_res_PSC, dp_b_res_PSC, dp_dict_res_PSC, dist_total_PSC, loc_total_PSC, k_dict_PSC = iteration(config_PSC)
 
 # Stampa risultati finali organizzati
 print("\n" + "="*80)
@@ -378,4 +418,4 @@ print(f"{'Distributed pressure drop':<35} {dist_total_PSC:>40.2f} Pa")
 print(f"{'Localized pressure drop':<35} {loc_total_PSC:>40.2f} Pa")
 print(f"{'Driving force (Buoyancy)':<35} {dp_b_res_PSC:>40.2f} Pa")
 # Stampa tabella perdite di carico
-save_results_to_csv(dp_dict_res_PSC, m_res_PSC, dp_b_res_PSC, dist_total_PSC, loc_total_PSC, filename=os.path.join(os.path.dirname(__file__), "result_PSC.csv"))
+save_results_to_csv(dp_dict_res_PSC, m_res_PSC, dp_b_res_PSC, dist_total_PSC, loc_total_PSC, filename=os.path.join(os.path.dirname(__file__), "result_PSC.csv"), k_dict=k_dict_PSC)
