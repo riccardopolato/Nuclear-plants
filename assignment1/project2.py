@@ -58,11 +58,16 @@ def global_heat_transfer_coefficient_HX(P, A_tot, D_ext, D_int, k, Re, p, T, f, 
     deltaT_lm = P / (A_tot * U * F)
     return U, deltaT_lm
 
-def temperature_ISC(T, p, T_ext, deltaT_lm, m, P_term):
+def temperature_ISC(T, p, T_h_ext, T_c_ext, deltaT_lm, m, P_term):
     ' Calcola la temperatura nel ramo caldo e nel ramo freddo '
+    # Formula LMTD unificata (counter-flow):
+    #   deltaT1 = T_h - T_h_ext,  deltaT2 = T_c - T_c_ext
+    #   deltaT_lm = (deltaT1 - deltaT2) / ln(deltaT1/deltaT2)
+    # Per ISC: T_h_ext = T_c_ext = T_pool  →  deltaT_ext = 0  →  si riduce alla formula ISC classica
+    # Per PSC: T_h_ext = T_h_ISC, T_c_ext = T_c_ISC
     deltaT = P_term / (m*CP.PropsSI('C', 'T', T+273.15, 'P', p, 'Water'))
-
-    T_h = (T_ext - (deltaT+T_ext)*np.exp(deltaT/deltaT_lm)) / (1 - np.exp(deltaT/deltaT_lm))
+    R = np.exp((deltaT - (T_h_ext - T_c_ext)) / deltaT_lm)
+    T_h = (T_h_ext - R * (deltaT + T_c_ext)) / (1 - R)
     T_c = T_h - deltaT
     return T_c, T_h
 
@@ -82,7 +87,7 @@ def pressure_drop_buoyancy_core(p, T_h, T_c, H2, g=9.81):
     deltaP_buoyancy_core = g * (rho_c - rho_h) / 2 * H2
     return deltaP_buoyancy_core
 
-def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, eps_HX, A_pipe, A_HX, L_ISC, L_HX,
+def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, eps_HX, A_pipe, A_HX, L_pipe, L_HX,
                             N_bends, k_bends, k_shell, A_shell, Circuit, A_headers = 0.883, k_valve = 0.12): 
     ' Calcola il fattore delle perdite di carico che moltiplica per la portata'
     # perdite distibuite lungo i tubi
@@ -90,11 +95,11 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
     Re_c = reynolds_number(m, D_pipe, p, T_c)
     f_h = friction_factor(eps_pipe, D_pipe, Re_h)
     f_c = friction_factor(eps_pipe, D_pipe, Re_c)
-    dp_dist_c = f_c * L_ISC / D_pipe * 1/(2*CP.PropsSI('D', 'T', T_c+273.15, 'P', p, 'Water') * A_pipe**2)
-    dp_dist_h = f_h * L_ISC / D_pipe * 1/(2*CP.PropsSI('D', 'T', T_h+273.15, 'P', p, 'Water') * A_pipe**2)
+    dp_dist_c = f_c * L_pipe / D_pipe * 1/(2*CP.PropsSI('D', 'T', T_c+273.15, 'P', p, 'Water') * A_pipe**2)
+    dp_dist_h = f_h * L_pipe / D_pipe * 1/(2*CP.PropsSI('D', 'T', T_h+273.15, 'P', p, 'Water') * A_pipe**2)
 
     # perdite distribuite lungo lo scambiatore (considero la total cross section dei tubi moltiplicata per il numero di tubi)
-    Re_HX = reynolds_number(m, D_HX, p, T_av)
+    Re_HX = reynolds_number(m/N_HX, D_HX, p, T_av)
     f_HX = friction_factor(eps_HX, D_HX, Re_HX)
     dp_dist_HX = f_HX * L_HX / D_HX * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
 
@@ -185,7 +190,7 @@ def mass_flow_rate(deltaP_buoyancy, deltaP_friction):
     ' Calcola la portata massica per una potenza termica data'
     return np.sqrt(deltaP_buoyancy / deltaP_friction)
 
-def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100, shell_params=None):
+def iteration(config, m_init=100, T_av_init=120, tolerance=1e-5, max_iter=100, shell_params=None):
     """
     Itera il calcolo della portata aggiornando T_av come media tra T_h e T_c.
     Se shell_params è fornito (dict con chiavi 'A_shell', 'D_eq', 'Re_shell', 'k_shell'), li usa invece di ricalcolare.
@@ -195,6 +200,7 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100, s
     # Inizializza variabili shell-side
     A_shell = D_eq = Re_shell = k_shell = None
     p_shell = T_shell = None
+    T_h_ext = T_c_ext = None
     if shell_params is not None:
         A_shell = shell_params.get('A_shell')
         D_eq = shell_params.get('D_eq')
@@ -202,14 +208,18 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100, s
         k_shell = shell_params.get('k_shell')
         p_shell = shell_params.get('pressure')
         T_shell = shell_params.get('T_av')
+        T_h_ext = shell_params.get('T_h')
+        T_c_ext = shell_params.get('T_c')
     elif config['Circuit'] == 'ISC':
         # A_shell e D_eq dipendono solo dalla geometria, sono costanti: calcolo una volta sola
         A_shell = config['D_shell']/config['d_pitch']*(config['d_pitch']-config['od_hx1'])*config['L_baffles']
         D_eq = (2*np.sqrt(3)*config['d_pitch']**2)/(np.pi*config['od_hx1'])-config['od_hx1']
+        # Pool isotermo: T_h_ext = T_c_ext = T_pool
+        T_h_ext = T_c_ext = config['T_HX']
     
     for iter_num in range(max_iter):
         # Calcolo del numero di Reynolds e fattore di attrito per lo scambiatore
-        Re_av = reynolds_number(m, config['id_hx'], config['pressure'], T_av)
+        Re_av = reynolds_number(m/config['N_tubes'], config['id_hx'], config['pressure'], T_av)
         f_av = friction_factor(config['eps_hx'], config['id_hx'], Re_av)
         
         # Calcolo Re_shell e k_shell nel lato shell (dipendono da m e T_av, si aggiornano ad ogni iterazione)
@@ -226,7 +236,7 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100, s
             config['Circuit'], config['Correction_f'], p_shell=p_shell, T_shell=T_shell)
         
         # Calcolo temperature caldo e freddo
-        T_c, T_h = temperature_ISC(T_av, config['pressure'], config['T_HX'], deltaT_lm, m, config['P_term'])
+        T_c, T_h = temperature_ISC(T_av, config['pressure'], T_h_ext, T_c_ext, deltaT_lm, m, config['P_term'])
         
         # Calcolo perdite di carico per galleggiabilità
         if config['Circuit'] == 'ISC':
@@ -259,7 +269,9 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100, s
                     'Re_shell': Re_shell,
                     'k_shell': k_shell,
                     'pressure': config['pressure'],
-                    'T_av': T_av_new
+                    'T_av': T_av_new,
+                    'T_h': T_h,
+                    'T_c': T_c
                 }
                 return m_new, T_av_new, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m_new**2, loc_total * m_new**2, k_dict, shell_results
             else:
@@ -279,7 +291,9 @@ def iteration(config, m_init=100, T_av_init=120, tolerance=1e-6, max_iter=100, s
             'Re_shell': Re_shell,
             'k_shell': k_shell,
             'pressure': config['pressure'],
-            'T_av': T_av
+            'T_av': T_av,
+            'T_h': T_h,
+            'T_c': T_c
         }
         return m, T_av, T_h, T_c, deltaP_buoyancy, dp_dict, dist_total * m**2, loc_total * m**2, k_dict, shell_results
     else:
