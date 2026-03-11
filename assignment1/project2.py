@@ -662,4 +662,4 @@ plot_pressure_drops(
     dp_dict_res_PSC, m_res_PSC, dist_total_PSC, loc_total_PSC, dp_b_res_PSC,
     out_dir=out_dir
 )
-plt.show()
+# plt.show()
