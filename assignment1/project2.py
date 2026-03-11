@@ -422,6 +422,9 @@ def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
     vals_ISC = [dp_dict_ISC[k] * m_ISC**2 for k in keys]
     vals_PSC = [dp_dict_PSC[k] * m_PSC**2 for k in keys]
 
+    total_ISC = dist_ISC + loc_ISC
+    total_PSC = dist_PSC + loc_PSC
+
     color_ISC, color_PSC = 'steelblue', 'tomato'
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
@@ -430,14 +433,26 @@ def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
     # --- Grafico 1: dettaglio per componente (barre orizzontali) ---
     y = np.arange(len(keys))
     h = 0.35
-    ax1.barh(y + h/2, vals_ISC, h, label='ISC', color=color_ISC)
-    ax1.barh(y - h/2, vals_PSC, h, label='PSC', color=color_PSC)
+    bars_h_ISC = ax1.barh(y + h/2, vals_ISC, h, label='ISC', color=color_ISC)
+    bars_h_PSC = ax1.barh(y - h/2, vals_PSC, h, label='PSC', color=color_PSC)
     ax1.set_yticks(y)
     ax1.set_yticklabels(labels)
     ax1.set_xlabel('Pressure drop [Pa]')
     ax1.set_title('Detail by component')
     ax1.axvline(0, color='black', linewidth=0.7)
     ax1.legend()
+    # Percentuali sui bar ISC
+    for bar, val in zip(bars_h_ISC, vals_ISC):
+        if val > 0:
+            pct = val / total_ISC * 100
+            ax1.text(bar.get_width() * 1.01, bar.get_y() + bar.get_height() / 2,
+                     f'{pct:.1f}%', va='center', ha='left', fontsize=7, color='steelblue')
+    # Percentuali sui bar PSC
+    for bar, val in zip(bars_h_PSC, vals_PSC):
+        if val > 0:
+            pct = val / total_PSC * 100
+            ax1.text(bar.get_width() * 1.01, bar.get_y() + bar.get_height() / 2,
+                     f'{pct:.1f}%', va='center', ha='left', fontsize=7, color='tomato')
 
     # --- Grafico 2: riepilogo aggregato ---
     categories = ['Distributed', 'Localized', 'Buoyancy\n(driving force)']
@@ -453,13 +468,19 @@ def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
     ax2.set_ylabel('Pressure drop [Pa]')
     ax2.set_title('Summary: distributed vs localized vs driving force')
     ax2.legend()
-    # Aggiunge i valori sopra le barre
-    for bar in bars_ISC:
+    # Valori assoluti + percentuale (solo per distributed e localized)
+    for i, bar in enumerate(bars_ISC):
+        label = f'{bar.get_height():.0f} Pa'
+        if i < 2:  # distributed e localized
+            label += f'\n({bar.get_height() / total_ISC * 100:.1f}%)'
         ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.01,
-                 f'{bar.get_height():.0f}', ha='center', va='bottom', fontsize=8)
-    for bar in bars_PSC:
+                 label, ha='center', va='bottom', fontsize=8)
+    for i, bar in enumerate(bars_PSC):
+        label = f'{bar.get_height():.0f} Pa'
+        if i < 2:
+            label += f'\n({bar.get_height() / total_PSC * 100:.1f}%)'
         ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.01,
-                 f'{bar.get_height():.0f}', ha='center', va='bottom', fontsize=8)
+                 label, ha='center', va='bottom', fontsize=8)
 
     plt.tight_layout()
     out_path = os.path.join(out_dir, 'pressure_drops_comparison.png')
@@ -648,12 +669,6 @@ plot_convergence(history_m_ISC, history_T_av_ISC, history_m_PSC, history_T_av_PS
 plot_temperature_summary(
     T_c_res_ISC, T_av_res_ISC, T_h_res_ISC, T_sat_ISC,
     T_c_res_PSC, T_av_res_PSC, T_h_res_PSC, T_sat_PSC,
-    out_dir
-)
-
-plot_pressure_drop_pies(
-    dp_dict_res_ISC, m_res_ISC,
-    dp_dict_res_PSC, m_res_PSC,
     out_dir
 )
 
