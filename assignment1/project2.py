@@ -336,96 +336,41 @@ def plot_convergence(history_m_ISC, history_T_av_ISC, history_m_PSC, history_T_a
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, 'convergence.png'), dpi=150)
 
-
-def plot_temperature_summary(T_c_ISC, T_av_ISC, T_h_ISC, T_sat_ISC,
-                             T_c_PSC, T_av_PSC, T_h_PSC, T_sat_PSC, out_dir):
-    """Bar chart comparativo di T_c, T_av, T_h e T_sat per ISC e PSC."""
-    labels = ['T cold\n(outlet)', 'T average', 'T hot\n(inlet)', 'T sat\n(limit)']
-    vals_ISC = [T_c_ISC, T_av_ISC, T_h_ISC, T_sat_ISC]
-    vals_PSC = [T_c_PSC, T_av_PSC, T_h_PSC, T_sat_PSC]
-
-    x = np.arange(len(labels))
-    w = 0.35
-    fig, ax = plt.subplots(figsize=(9, 6))
-    bars_ISC = ax.bar(x - w/2, vals_ISC, w, label='ISC', color='steelblue')
-    bars_PSC = ax.bar(x + w/2, vals_PSC, w, label='PSC', color='tomato')
-
-    for bar in list(bars_ISC) + list(bars_PSC):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.4,
-                f'{bar.get_height():.1f}', ha='center', va='bottom', fontsize=9)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels)
-    ax.set_ylabel('Temperature [°C]')
-    ax.set_title('Coolant temperatures: ISC vs PSC', fontsize=13, fontweight='bold')
-    ax.legend()
-    ax.grid(True, axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, 'temperatures_summary.png'), dpi=150)
-
-
 def plot_pressure_drop_pies(dp_dict_ISC, m_ISC, dp_dict_PSC, m_PSC, out_dir):
-    """Torte affiancate: contributo percentuale di ogni componente alle perdite totali per ISC e PSC."""
-    component_labels = [
-        ('dist_cold',       'Distributed - cold pipe'),
-        ('dist_hot',        'Distributed - hot pipe'),
-        ('dist_HX',         'Distributed - HX tubes'),
-        ('loc_bends_hot',   'Localized - bends hot'),
-        ('loc_bends_cold',  'Localized - bends cold'),
-        ('loc_HX',          'Localized - HX in/out'),
-        ('loc_pipe_header', 'Localized - pipe↔header'),
-        ('loc_shell',       'Localized - shell'),
-        ('loc_valve',       'Localized - valve'),
-        ('loc_core',        'Localized - core'),
-        ('loc_bends_HX',    'Localized - bends HX'),
-    ]
-    keys   = [k for k, _ in component_labels]
-    labels = [l for _, l in component_labels]
+    """Due grafici a torta separati: uno per ISC e uno per PSC."""
+    keys = ['dist_cold', 'dist_hot', 'dist_HX',
+            'loc_bends_hot', 'loc_bends_cold', 'loc_HX_in', 'loc_HX_out',
+            'loc_pipe_header_in', 'loc_pipe_header_out',
+            'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']
+    labels = [k.replace('_', ' ').title() for k in keys]
 
     vals_ISC = np.array([dp_dict_ISC[k] * m_ISC**2 for k in keys])
     vals_PSC = np.array([dp_dict_PSC[k] * m_PSC**2 for k in keys])
 
-    # Tieni solo le voci con valore > 0
-    mask_ISC = vals_ISC > 0
-    mask_PSC = vals_PSC > 0
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
-    fig.suptitle('Pressure drop breakdown [%]: ISC vs PSC', fontsize=14, fontweight='bold')
-
-    ax1.pie(vals_ISC[mask_ISC], labels=np.array(labels)[mask_ISC],
-            autopct='%1.1f%%', startangle=140, pctdistance=0.82)
-    ax1.set_title('ISC')
-
-    ax2.pie(vals_PSC[mask_PSC], labels=np.array(labels)[mask_PSC],
-            autopct='%1.1f%%', startangle=140, pctdistance=0.82)
-    ax2.set_title('PSC')
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, 'pressure_drop_pies.png'), dpi=150)
+    for vals, mask_label, fname in [
+        (vals_ISC, 'ISC', 'pressure_drop_pie_ISC.png'),
+        (vals_PSC, 'PSC', 'pressure_drop_pie_PSC.png'),
+    ]:
+        mask = vals > 0
+        fig, ax = plt.subplots(figsize=(9, 7))
+        ax.pie(vals[mask], labels=np.array(labels)[mask],
+               autopct='%1.1f%%', startangle=140, pctdistance=0.82)
+        ax.set_title(f'Pressure drop breakdown [%] — {mask_label}', fontsize=13, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, fname), dpi=150)
+        plt.close(fig)
 
 
 def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
                         dp_dict_PSC, m_PSC, dist_PSC, loc_PSC, dp_b_PSC, out_dir):
     """Genera due grafici affiancati: dettaglio per componente e riepilogo aggregato."""
 
-    # Etichette leggibili per ogni componente
-    component_labels = [
-        ('dist_cold',       'Distributed - cold pipe'),
-        ('dist_hot',        'Distributed - hot pipe'),
-        ('dist_HX',         'Distributed - HX tubes'),
-        ('loc_bends_hot',   'Localized - bends hot'),
-        ('loc_bends_cold',       'Localized - bends cold'),
-        ('loc_HX_in',            'Localized - HX inlet'),
-        ('loc_HX_out',           'Localized - HX outlet'),
-        ('loc_pipe_header_in',   'Localized - pipe\u2194header in'),
-        ('loc_pipe_header_out',  'Localized - pipe\u2194header out'),
-        ('loc_shell',            'Localized - shell'),
-        ('loc_valve',            'Localized - valve'),
-        ('loc_core',             'Localized - core'),
-        ('loc_bends_HX',         'Localized - bends HX'),
-    ]
-    keys   = [k for k, _ in component_labels]
-    labels = [l for _, l in component_labels]
+    # Etichette: stesse del CSV (k.replace('_', ' ').title())
+    keys = ['dist_cold', 'dist_hot', 'dist_HX',
+            'loc_bends_hot', 'loc_bends_cold', 'loc_HX_in', 'loc_HX_out',
+            'loc_pipe_header_in', 'loc_pipe_header_out',
+            'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']
+    labels = [k.replace('_', ' ').title() for k in keys]
 
     vals_ISC = [dp_dict_ISC[k] * m_ISC**2 for k in keys]
     vals_PSC = [dp_dict_PSC[k] * m_PSC**2 for k in keys]
@@ -674,15 +619,12 @@ out_dir = os.path.dirname(__file__)
 
 plot_convergence(history_m_ISC, history_T_av_ISC, history_m_PSC, history_T_av_PSC, out_dir)
 
-plot_temperature_summary(
-    T_c_res_ISC, T_av_res_ISC, T_h_res_ISC, T_sat_ISC,
-    T_c_res_PSC, T_av_res_PSC, T_h_res_PSC, T_sat_PSC,
-    out_dir
-)
-
 plot_pressure_drops(
     dp_dict_res_ISC, m_res_ISC, dist_total_ISC, loc_total_ISC, dp_b_res_ISC,
     dp_dict_res_PSC, m_res_PSC, dist_total_PSC, loc_total_PSC, dp_b_res_PSC,
     out_dir=out_dir
+)
+plot_pressure_drop_pies(
+    dp_dict_res_ISC, m_res_ISC, dp_dict_res_PSC, m_res_PSC, out_dir=out_dir
 )
 # plt.show()
