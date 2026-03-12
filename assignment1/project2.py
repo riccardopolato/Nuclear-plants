@@ -38,7 +38,7 @@ def global_heat_transfer_coefficient_HX(P, A_tot, D_ext, D_int, k, Re, p, T, f, 
     if Circuit == 'PSC':
         # h_ext è lato shell (acqua ISC): usa le proprietà del fluido shell
         Pr_shell = CP.PropsSI('Prandtl', 'P', p_shell, 'T', T_shell + 273.15, 'Water')
-        h_ext = 0.351*Re_shell**0.55*k/D_eq*Pr_shell**(1/3)
+        h_ext = 0.351*Re_shell**0.55*k_fluid/D_eq*Pr_shell**(1/3)
     elif Circuit == 'ISC':
         flux = P / A_tot
         h_ext = flux**(1-1/3.86) * 2.257**(1/3.86)
@@ -122,8 +122,10 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
             A_narrow = A_pipe
         k_in = 0.5*(1-sigma)
         k_out = (1-sigma)**2
-        dp_loc_HX = (k_in + k_out) * 1/(2*rho_av * A_narrow**2)
-        k_in_header, k_out_header, dp_loc_pipe_header = 0.0, 0.0, 0.0
+        dp_loc_HX_in  = k_in  * 1/(2*rho_av * A_narrow**2)
+        dp_loc_HX_out = k_out * 1/(2*rho_av * A_narrow**2)
+        k_in_header, k_out_header = 0.0, 0.0
+        dp_loc_pipe_header_in, dp_loc_pipe_header_out = 0.0, 0.0
 
     elif Circuit == 'PSC':
         # Transizione 1: main pipe <-> header
@@ -135,7 +137,8 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
             A_narrow_ph = A_headers
         k_in_header = 0.5*(1-sigma_ph)
         k_out_header = (1-sigma_ph)**2
-        dp_loc_pipe_header = (k_in_header + k_out_header) * 1/(2*rho_av * A_narrow_ph**2)
+        dp_loc_pipe_header_in  = k_in_header  * 1/(2*rho_av * A_narrow_ph**2)
+        dp_loc_pipe_header_out = k_out_header * 1/(2*rho_av * A_narrow_ph**2)
 
         # Transizione 2: header <-> HX tubes
         if A_HX_tot < A_headers:
@@ -146,7 +149,8 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
             A_narrow = A_headers
         k_in = 0.5*(1-sigma)
         k_out = (1-sigma)**2
-        dp_loc_HX = (k_in + k_out) * 1/(2*rho_av * A_narrow**2)
+        dp_loc_HX_in  = k_in  * 1/(2*rho_av * A_narrow**2)
+        dp_loc_HX_out = k_out * 1/(2*rho_av * A_narrow**2)
 
     #perdite nel shell solo lato ISC
     if Circuit == 'ISC':
@@ -167,8 +171,10 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         'dist_HX': dp_dist_HX,
         'loc_bends_hot': dp_loc_bends_h,
         'loc_bends_cold': dp_loc_bends_c,
-        'loc_HX': dp_loc_HX,
-        'loc_pipe_header': dp_loc_pipe_header,
+        'loc_HX_in': dp_loc_HX_in,
+        'loc_HX_out': dp_loc_HX_out,
+        'loc_pipe_header_in': dp_loc_pipe_header_in,
+        'loc_pipe_header_out': dp_loc_pipe_header_out,
         'loc_shell': dp_loc_shell,
         'loc_valve': dp_loc_valve,
         'loc_core': dp_core,
@@ -182,7 +188,7 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         'k_out_header': k_out_header
     }
     dist_total = dp_dist_c + dp_dist_h + dp_dist_HX
-    loc_total = dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX + dp_loc_pipe_header + dp_loc_shell + dp_loc_valve + dp_core + dp_bends_HX
+    loc_total = dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX_in + dp_loc_HX_out + dp_loc_pipe_header_in + dp_loc_pipe_header_out + dp_loc_shell + dp_loc_valve + dp_core + dp_bends_HX
     deltaP_friction = dist_total + loc_total
     return deltaP_friction, dp_dict, dist_total, loc_total, k_dict
 
@@ -408,13 +414,15 @@ def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
         ('dist_hot',        'Distributed - hot pipe'),
         ('dist_HX',         'Distributed - HX tubes'),
         ('loc_bends_hot',   'Localized - bends hot'),
-        ('loc_bends_cold',  'Localized - bends cold'),
-        ('loc_HX',          'Localized - HX inlet/outlet'),
-        ('loc_pipe_header', 'Localized - pipe↔header'),
-        ('loc_shell',       'Localized - shell'),
-        ('loc_valve',       'Localized - valve'),
-        ('loc_core',        'Localized - core'),
-        ('loc_bends_HX',    'Localized - bends HX'),
+        ('loc_bends_cold',       'Localized - bends cold'),
+        ('loc_HX_in',            'Localized - HX inlet'),
+        ('loc_HX_out',           'Localized - HX outlet'),
+        ('loc_pipe_header_in',   'Localized - pipe\u2194header in'),
+        ('loc_pipe_header_out',  'Localized - pipe\u2194header out'),
+        ('loc_shell',            'Localized - shell'),
+        ('loc_valve',            'Localized - valve'),
+        ('loc_core',             'Localized - core'),
+        ('loc_bends_HX',         'Localized - bends HX'),
     ]
     keys   = [k for k, _ in component_labels]
     labels = [l for _, l in component_labels]
@@ -498,7 +506,7 @@ def save_results_to_csv(dp_dict, m, buoyancy, dist_total, loc_total, filename, k
         
         writer.writerow(["", ""])
         writer.writerow(["--- LOCALIZED PRESSURE DROPS ---", ""])
-        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX', 'loc_pipe_header', 'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']:
+        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX_in', 'loc_HX_out', 'loc_pipe_header_in', 'loc_pipe_header_out', 'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']:
             writer.writerow([k.replace('_', ' ').title(), round(dp_dict[k] * m**2, 4)])
         writer.writerow(["Total Localized", round(loc_total, 4)])
         
@@ -520,7 +528,7 @@ P_term = 0.01 * P_nom
 
 # --- ISC ---
 # Pipe
-L_ISC, H_ISC, p_ISC = 40.0, 10.0, 70e5 
+L_ISC, H_ISC, p_ISC = 20.0, 10.0, 70e5 
 T_sat_ISC = CP.PropsSI('T', 'P', p_ISC, 'Q', 0, 'Water') - 273.15
 od_ISC, th_ISC = 16.0, 1.031 
 id_ISC, A_ISC = get_pipe_geometry(od_ISC, th_ISC)
@@ -539,7 +547,7 @@ T_pool = CP.PropsSI('T', 'P', 1e5, 'Q', 0, 'Water') - 273.15
 
 # --- PSC ---
 # Pipe
-L_PSC, H1_PSC, H2_PSC, p_PSC = 16.0, 7.0, 3.0, 75e5
+L_PSC, H1_PSC, H2_PSC, p_PSC = 8.0, 7.0, 3.0, 75e5
 T_sat_PSC = CP.PropsSI('T', 'P', p_PSC, 'Q', 0, 'Water') - 273.15
 od_PSC, th_PSC = 16.0, 1.031
 id_PSC, A_PSC = get_pipe_geometry(od_PSC, th_PSC)
