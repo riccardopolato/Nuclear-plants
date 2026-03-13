@@ -162,7 +162,7 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         dp_loc_shell = 0
         dp_loc_valve = k_valve * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_pipe)**2)
         dp_core = 1.2e5/3200**2  # perdita di carico nel core: deltaP_core [Pa] / m^2 [kg^2/s^2]
-        dp_bends_HX = k_bends * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
+        dp_bends_HX = 2* k_bends * 1/(2*CP.PropsSI('D', 'T', T_av+273.15, 'P', p, 'Water') * (A_HX*N_HX)**2)
         
 
     dp_dict = {
@@ -337,7 +337,7 @@ def plot_convergence(history_m_ISC, history_T_av_ISC, history_m_PSC, history_T_a
     plt.savefig(os.path.join(out_dir, 'convergence.png'), dpi=150)
 
 def plot_pressure_drop_pies(dp_dict_ISC, m_ISC, dp_dict_PSC, m_PSC, out_dir):
-    """Due grafici a torta separati: uno per ISC e uno per PSC."""
+    """Torte affiancate: contributo percentuale di ogni componente alle perdite totali per ISC e PSC."""
     keys = ['dist_cold', 'dist_hot', 'dist_HX',
             'loc_bends_hot', 'loc_bends_cold', 'loc_HX_in', 'loc_HX_out',
             'loc_pipe_header_in', 'loc_pipe_header_out',
@@ -347,18 +347,25 @@ def plot_pressure_drop_pies(dp_dict_ISC, m_ISC, dp_dict_PSC, m_PSC, out_dir):
     vals_ISC = np.array([dp_dict_ISC[k] * m_ISC**2 for k in keys])
     vals_PSC = np.array([dp_dict_PSC[k] * m_PSC**2 for k in keys])
 
-    for vals, mask_label, fname in [
-        (vals_ISC, 'ISC', 'pressure_drop_pie_ISC.png'),
-        (vals_PSC, 'PSC', 'pressure_drop_pie_PSC.png'),
-    ]:
+    def _draw_pie(ax, vals, title):
         mask = vals > 0
-        fig, ax = plt.subplots(figsize=(9, 7))
-        ax.pie(vals[mask], labels=np.array(labels)[mask],
-               autopct='%1.1f%%', startangle=140, pctdistance=0.82)
-        ax.set_title(f'Pressure drop breakdown [%] — {mask_label}', fontsize=13, fontweight='bold')
-        plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, fname), dpi=150)
-        plt.close(fig)
+        v = vals[mask]
+        lbl = np.array(labels)[mask]
+        wedges, _ = ax.pie(v, startangle=140, wedgeprops=dict(linewidth=0.5, edgecolor='white'))
+        # Legenda con percentuali: nessuna etichetta diretta sul grafico → zero sovrapposizioni
+        pcts = v / v.sum() * 100
+        legend_labels = [f'{l}  ({p:.1f}%)' for l, p in zip(lbl, pcts)]
+        ax.legend(wedges, legend_labels, loc='center left', bbox_to_anchor=(1.0, 0.5),
+                  fontsize=8, frameon=True)
+        ax.set_title(title)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
+    fig.suptitle('Pressure drop breakdown [%]: ISC vs PSC', fontsize=14, fontweight='bold')
+    _draw_pie(ax1, vals_ISC, 'ISC')
+    _draw_pie(ax2, vals_PSC, 'PSC')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, 'pressure_drop_pies.png'), dpi=150, bbox_inches='tight')
 
 
 def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
