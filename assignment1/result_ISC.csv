@@ -29,3 +29,8 @@ k_in,0.345076
 k_out,0.47631
 k_in_header,0.0
 k_out_header,0.0
+,
+--- HEAT TRANSFER COEFFICIENTS ---,
+h Internal [W/m²K],2365.4497
+h External [W/m²K],1453.8489
+U Overall [W/m²K],804.3041
