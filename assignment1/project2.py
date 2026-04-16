@@ -120,12 +120,12 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         else:
             sigma = A_pipe / A_HX_tot
             A_narrow = A_pipe
-        k_in = 0.5*(1-sigma)
-        k_out = (1-sigma)**2
-        dp_loc_HX_in  = k_in  * 1/(2*rho_av * A_narrow**2)
-        dp_loc_HX_out = k_out * 1/(2*rho_av * A_narrow**2)
-        k_in_header, k_out_header = 0.0, 0.0
-        dp_loc_pipe_header_in, dp_loc_pipe_header_out = 0.0, 0.0
+        k_contr = 0.5*(1-sigma)
+        k_exp = (1-sigma)**2
+        dp_loc_HX_contr  = k_contr  * 1/(2*rho_av * A_narrow**2)
+        dp_loc_HX_exp = k_exp * 1/(2*rho_av * A_narrow**2)
+        k_contr_header, k_exp_header = 0.0, 0.0
+        dp_loc_pipe_header_contr, dp_loc_pipe_header_exp = 0.0, 0.0
 
     elif Circuit == 'PSC':
         # Transizione 1: main pipe <-> header
@@ -135,10 +135,10 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         else:
             sigma_ph = A_headers / A_pipe
             A_narrow_ph = A_headers
-        k_in_header = 0.5*(1-sigma_ph)
-        k_out_header = (1-sigma_ph)**2
-        dp_loc_pipe_header_in  = k_in_header  * 1/(2*rho_av * A_narrow_ph**2)
-        dp_loc_pipe_header_out = k_out_header * 1/(2*rho_av * A_narrow_ph**2)
+        k_contr_header = 0.5*(1-sigma_ph)
+        k_exp_header = (1-sigma_ph)**2
+        dp_loc_pipe_header_contr  = k_contr_header  * 1/(2*rho_av * A_narrow_ph**2)
+        dp_loc_pipe_header_exp = k_exp_header * 1/(2*rho_av * A_narrow_ph**2)
 
         # Transizione 2: header <-> HX tubes
         if A_HX_tot < A_headers:
@@ -147,10 +147,10 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         else:
             sigma = A_headers / A_HX_tot
             A_narrow = A_headers
-        k_in = 0.5*(1-sigma)
-        k_out = (1-sigma)**2
-        dp_loc_HX_in  = k_in  * 1/(2*rho_av * A_narrow**2)
-        dp_loc_HX_out = k_out * 1/(2*rho_av * A_narrow**2)
+        k_contr = 0.5*(1-sigma)
+        k_exp = (1-sigma)**2
+        dp_loc_HX_contr  = k_contr  * 1/(2*rho_av * A_narrow**2)
+        dp_loc_HX_exp = k_exp * 1/(2*rho_av * A_narrow**2)
 
     #perdite nel shell solo lato ISC
     if Circuit == 'ISC':
@@ -171,10 +171,10 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
         'dist_HX': dp_dist_HX,
         'loc_bends_hot': dp_loc_bends_h,
         'loc_bends_cold': dp_loc_bends_c,
-        'loc_HX_in': dp_loc_HX_in,
-        'loc_HX_out': dp_loc_HX_out,
-        'loc_pipe_header_in': dp_loc_pipe_header_in,
-        'loc_pipe_header_out': dp_loc_pipe_header_out,
+        'loc_HX_contr': dp_loc_HX_contr,
+        'loc_HX_exp': dp_loc_HX_exp,
+        'loc_pipe_header_contr': dp_loc_pipe_header_contr,
+        'loc_pipe_header_exp': dp_loc_pipe_header_exp,
         'loc_shell': dp_loc_shell,
         'loc_valve': dp_loc_valve,
         'loc_core': dp_core,
@@ -182,13 +182,13 @@ def pressure_drop_friction(m, N_HX, p, D_pipe, D_HX, T_av, T_c, T_h, eps_pipe, e
     }
     k_dict = {
         'k_shell': k_shell,
-        'k_in': k_in,
-        'k_out': k_out,
-        'k_in_header': k_in_header,
-        'k_out_header': k_out_header
+        'k_contr': k_contr,
+        'k_exp': k_exp,
+        'k_contr_header': k_contr_header,
+        'k_exp_header': k_exp_header
     }
     dist_total = dp_dist_c + dp_dist_h + dp_dist_HX
-    loc_total = dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX_in + dp_loc_HX_out + dp_loc_pipe_header_in + dp_loc_pipe_header_out + dp_loc_shell + dp_loc_valve + dp_core + dp_bends_HX
+    loc_total = dp_loc_bends_h + dp_loc_bends_c + dp_loc_HX_contr + dp_loc_HX_exp + dp_loc_pipe_header_contr + dp_loc_pipe_header_exp + dp_loc_shell + dp_loc_valve + dp_core + dp_bends_HX
     deltaP_friction = dist_total + loc_total
     return deltaP_friction, dp_dict, dist_total, loc_total, k_dict
 
@@ -345,8 +345,8 @@ def plot_convergence(history_m_ISC, history_T_av_ISC, history_m_PSC, history_T_a
 def plot_pressure_drop_pies(dp_dict_ISC, m_ISC, dp_dict_PSC, m_PSC, out_dir):
     """Torte affiancate: contributo percentuale di ogni componente alle perdite totali per ISC e PSC."""
     keys = ['dist_cold', 'dist_hot', 'dist_HX',
-            'loc_bends_hot', 'loc_bends_cold', 'loc_HX_in', 'loc_HX_out',
-            'loc_pipe_header_in', 'loc_pipe_header_out',
+            'loc_bends_hot', 'loc_bends_cold', 'loc_HX_contr', 'loc_HX_exp',
+            'loc_pipe_header_contr', 'loc_pipe_header_exp',
             'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']
     labels = [k.replace('_', ' ').title() for k in keys]
 
@@ -381,8 +381,8 @@ def plot_pressure_drops(dp_dict_ISC, m_ISC, dist_ISC, loc_ISC, dp_b_ISC,
 
     # Etichette: stesse del CSV (k.replace('_', ' ').title())
     keys = ['dist_cold', 'dist_hot', 'dist_HX',
-            'loc_bends_hot', 'loc_bends_cold', 'loc_HX_in', 'loc_HX_out',
-            'loc_pipe_header_in', 'loc_pipe_header_out',
+            'loc_bends_hot', 'loc_bends_cold', 'loc_HX_contr', 'loc_HX_exp',
+            'loc_pipe_header_contr', 'loc_pipe_header_exp',
             'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']
     labels = [k.replace('_', ' ').title() for k in keys]
 
@@ -465,7 +465,7 @@ def save_results_to_csv(dp_dict, m, buoyancy, dist_total, loc_total, filename, k
         
         writer.writerow(["", ""])
         writer.writerow(["--- LOCALIZED PRESSURE DROPS ---", ""])
-        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX_in', 'loc_HX_out', 'loc_pipe_header_in', 'loc_pipe_header_out', 'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']:
+        for k in ['loc_bends_hot', 'loc_bends_cold', 'loc_HX_contr', 'loc_HX_exp', 'loc_pipe_header_contr', 'loc_pipe_header_exp', 'loc_shell', 'loc_valve', 'loc_core', 'loc_bends_HX']:
             writer.writerow([k.replace('_', ' ').title(), round(dp_dict[k] * m**2, 4)])
         writer.writerow(["Total Localized", round(loc_total, 4)])
         

@@ -8,10 +8,10 @@ Total Distributed,768.5788
 --- LOCALIZED PRESSURE DROPS ---,
 Loc Bends Hot,328.2703
 Loc Bends Cold,320.8027
-Loc Hx In,18.2235
-Loc Hx Out,28.4629
-Loc Pipe Header In,80.061
-Loc Pipe Header Out,142.2715
+Loc Hx Contr,18.2235
+Loc Hx Exp,28.4629
+Loc Pipe Header Contr,80.061
+Loc Pipe Header Exp,142.2715
 Loc Shell,0.0
 Loc Valve,21.6254
 Loc Core,38.1626
@@ -25,10 +25,10 @@ Mass Flow Rate [kg/s],57.0661
 ,
 --- K LOSS COEFFICIENTS ---,
 k_shell,48.935494
-k_in,0.390469
-k_out,0.609864
-k_in_header,0.44426
-k_out_header,0.789468
+k_contr,0.390469
+k_exp,0.609864
+k_contr_header,0.44426
+k_exp_header,0.789468
 ,
 --- HEAT TRANSFER COEFFICIENTS ---,
 h Internal [W/m²K],3337.9432
