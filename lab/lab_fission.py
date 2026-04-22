@@ -32,6 +32,8 @@ def leggi_e_prepara_dati(file_path, m_ref):
     # Aggiungi M_ref alla colonna m_l
     df['m_l'] = df['m_l']/1000 + m_ref
     df['dp_transd'] = df['dp_transd']*100 # conversione da mbar a Pa
+    df['p_rel_test'] = df['p_rel_test']*100000 # conversione da bar a Pa
+    df['dp_dia_water'] = df['dp_dia_water']*100 # conversione da mbar a Pa
     # Crea il dizionario raggruppando per 'test'
     all_data = {}
     for shot_id, group in df.groupby('test'):
@@ -371,6 +373,8 @@ def crea_dizionario_finale(all_data):
                 'G_exp': round_if_numeric(record.get('G_exp')),
                 'j_g': round_if_numeric(record.get('j_g')),
                 'j_l': round_if_numeric(record.get('j_l')),
+                'rho_l': round_if_numeric(record.get('rho_l')),
+                'rho_g': round_if_numeric(record.get('rho_g')),
 
                 # --- Void fraction ---
                 'alpha_exp':        round_if_numeric(record.get('void_fraction_exp')),
@@ -404,7 +408,7 @@ def esporta_csv(risultati_finali, file_output='risultati.csv'):
     # Colonne nell'ordine in cui le vuoi nel CSV
     colonne = [
         'shot_id', 'test', 'flow_pattern',
-        'x_exp', 'G_exp', 'j_g', 'j_l',
+        'x_exp', 'G_exp', 'j_g', 'j_l', 'rho_l', 'rho_g',
         # Void fraction
         'alpha_exp', 'alpha_hom', 'alpha_zivi',
         'alpha_chisholm', 'alpha_cise', 'alpha_drift_flux',

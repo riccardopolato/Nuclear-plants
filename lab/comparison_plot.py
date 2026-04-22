@@ -1,17 +1,20 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
+
+
+FIGURES_DIR = Path(__file__).resolve().parent / 'Figures'
+FIGURES_DIR.mkdir(exist_ok=True)
 
 # 1. Caricamento dei dati
 # Nota: uso sep=';' perché Excel spesso esporta i CSV in italiano usando il punto e virgola
-df = pd.read_csv('risultati_analisi.csv', sep=';')
+df = pd.read_csv('lab/risultati_analisi.csv', sep=';')
 
 # Imposto una dimensione del font leggermente più grande per la relazione
 plt.rcParams.update({'font.size': 12})
 
-# ==========================================
-# GRAFICO 1: VOID FRACTION
-# ==========================================
+# %% Plot 1: Void Fraction
 plt.figure(figsize=(8, 8))
 
 # Disegno i punti sperimentali vs calcolati per ogni modello
@@ -43,13 +46,11 @@ plt.legend(bbox_to_anchor=(1.05, 0.5), loc='center left', frameon=False)
 
 # Aggiusto i margini e salvo/mostro l'immagine
 plt.tight_layout()
-plt.savefig('void_fraction_plot.png', dpi=300, bbox_inches='tight')
-plt.show()
+plt.savefig(FIGURES_DIR / 'void_fraction_plot.png', dpi=300, bbox_inches='tight')
+#plt.show()
 
 
-# ==========================================
-# GRAFICO 2: PRESSURE DROP (Tutte le 5 combinazioni)
-# ==========================================
+# %% Plot 2: Pressure Drop
 plt.figure(figsize=(8, 8))
 
 # Trovo il valore massimo includendo TUTTE le colonne calcolate
@@ -88,5 +89,63 @@ plt.legend(bbox_to_anchor=(1.05, 0.5), loc='center left', frameon=False)
 
 # Aggiusto i margini e salvo/mostro l'immagine
 plt.tight_layout()
-plt.savefig('pressure_drop_all_models_plot.png', dpi=300, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / 'pressure_drop_all_models_plot.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+
+
+# %% Plot con Diagram plotter
+# Hewitt-Roberts 
+# Eseguo lo script originale
+exec(open('lab/Diagram plotter/Hewitt_Roberts.py').read())
+
+# Estraggo i dati
+df_data = pd.read_csv('lab/risultati_analisi.csv', sep=';')
+
+# Uso le densità calcolate per ogni shot (rho_l e rho_g) dal CSV risultati
+df_data['x_hewitt'] = df_data['rho_l'] * (df_data['j_l'] ** 2)
+df_data['y_hewitt'] = df_data['rho_g'] * (df_data['j_g'] ** 2)
+
+
+def pattern_to_sigla(pattern):
+    mapping = {
+        'slug': 'S',
+        'churn': 'C',
+        'annular': 'A',
+        'anular': 'A',
+        'bubble': 'B',
+        'bubbly': 'B'
+    }
+    parts = [p.strip() for p in str(pattern).split('/')]
+    sigle = []
+    for part in parts:
+        key = part.lower()
+        if key in mapping:
+            sigle.append(mapping[key])
+        elif part:
+            sigle.append(part[0].upper())
+    return '/'.join(sigle)
+
+# Aggiungo i miei punti in rosso sul grafico esistente
+for idx, row in df_data.iterrows():
+    x_point = row['x_hewitt']
+    y_point = row['y_hewitt']
+    shot = row['shot_id']
+    pattern = row['flow_pattern']
+    
+    # Plot punto rosso
+    plt.scatter(x_point, y_point, color='red', s=80, marker='o', zorder=3, edgecolors='darkred', linewidth=1.5)
+    
+    # Etichetta compatta: shot:sigla_pattern (es. 45:S/C)
+    label_text = f"{int(shot)}:{pattern_to_sigla(pattern)}"
+    plt.annotate(label_text, 
+                xy=(x_point, y_point),
+                xytext=(5, 5),
+                textcoords='offset points',
+                fontsize=7,
+                color='darkred',
+                weight='bold',
+                zorder=4)
+
+plt.savefig(FIGURES_DIR / 'hewitt_roberts_with_data.png', dpi=300, bbox_inches='tight')
 plt.show()
