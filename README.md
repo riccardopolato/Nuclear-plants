@@ -14,14 +14,28 @@ Size and verify the heat exchangers of the ISC and PSC (Primary Safety Circuit) 
 
 ---
 
+## Two-phase flow laboratory
+This laboratory exercise focuses on the analysis of two-phase (air-water) flow in a vertical pipe. The main script, `lab_fission.py`, performs the following tasks:
+- It reads experimental data from `tab_dat_flowpat.csv`, which contains measurements of pressure, temperature, and flow rates.
+- It calculates key experimental parameters, including mass flow rates for air and water, quality, mass flux, and superficial velocities.
+- It determines the experimental void fraction and total pressure drop from the measured data.
+- It compares these experimental results with the predictions of several widely-used correlations for void fraction (Homogeneous, Zivi, Chisholm, CISE, Drift-Flux) and pressure drop (including friction models like Friedel).
+- The final comparison, containing both experimental and theoretical values, is exported to `risultati_analisi.csv`.
+
+---
+
 ## Structure
 - `assignment1/`: Scripts and data for Assignment 1.
   - `project1.py`: Natural circulation loop design (1.1).
   - `project2.py`: Heat exchanger thermohydraulic analysis (1.2).
   - `diameter_table.txt`: ASME standard pipe dimensions.
   - `result_ISC.csv`, `result_PSC.csv`: Output results.
+- `lab/`: Scripts and data for the two-phase flow laboratory.
+  - `lab_fission.py`: Main script for data analysis and comparison with correlations.
+  - `tab_dat_flowpat.csv`: Raw experimental data.
+  - `risultati_analisi.csv`: Output results comparing experimental data with correlations.
 - `requirements.txt`: Lists the dependencies required to run the project.
-- `README.txt`: This file, providing an overview of the project.
+- `README.md`: This file, providing an overview of the project.
 
 ## Setup
 1. Create a virtual environment:
