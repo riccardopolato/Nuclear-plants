@@ -13,8 +13,8 @@ def leggi_e_prepara_dati(file_path, m_ref):
 
     # Assegna i nuovi nomi alle colonne
     new_column_names = [
-        'test', 'diaphragm', 'Air_flow', 'p_rot', 'dp_dia_water',
-        'p_testsection', 'type_dp', 'dp_pipe', 'T_water', 'm_water', 'flow_pattern'
+        'test', 'diaphragm', 'Q_s', 'p_e_rel', 'dp_dia_water',
+        'p_testsection', 'type_dp', 'dp_transd', 'T_water', 'm_l', 'flow_pattern'
     ]
     df.columns = new_column_names
 
@@ -22,8 +22,8 @@ def leggi_e_prepara_dati(file_path, m_ref):
     df = df.dropna(how='all')
     df = df.dropna(subset=['test'])
 
-    # Aggiungi M_ref alla colonna m_water
-    df['m_water'] = df['m_water'] + m_ref
+    # Aggiungi M_ref alla colonna m_l
+    df['m_l'] = df['m_l']/1000 + m_ref
 
     # Crea il dizionario raggruppando per 'test'
     all_data = {}
@@ -31,22 +31,6 @@ def leggi_e_prepara_dati(file_path, m_ref):
         all_data[shot_id] = group.to_dict('records')
     
     return all_data
-
-def analizza_dati(all_data, diaphragm_data):
-    """
-    Itera attraverso il dizionario di dati, calcola la portata per ogni record
-    e la aggiunge al record stesso.
-    """
-    for shot_id, records in all_data.items():
-        for record in records:
-            # Estrai i valori necessari per il calcolo
-            diaphragm_type = record['diaphragm']
-            delta_p_mbar = record['dp_dia_water']
-            temperature_c = record['T_water']
-
-            # Calcola la portata (W) e aggiungila al record
-            W = calculate_water_flow_rate(diaphragm_type, delta_p_mbar, diaphragm_data, temperature_c)
-            
 
 
 def calculate_water_flow_rate(diaphragm_type, delta_p_mbar, diaphragm_data, temperature_c):
@@ -86,6 +70,51 @@ def calculate_water_flow_rate(diaphragm_type, delta_p_mbar, diaphragm_data, temp
     return W
 
 
+def calculate_air_flow_rate(Qs, p_rel):
+    """
+    Calcola la portata massica dell'aria in kg/s.
+    
+    Parametri:
+    - Qs: float, portata volumetrica letta dal rotametro in Nm^3/h.
+    - p_rel: float, pressione relativa misurata a monte del rotametro in barg.
+    """
+    
+    # Calcolo della portata massica in kg/h usando la formula del manuale
+    W_air_kg_h = 1.204 * math.sqrt((p_rel + 1.013) / 1.013) * Qs
+    
+    # Conversione in kg/s per avere la stessa unità di misura dell'acqua
+    W_air_kg_s = W_air_kg_h / 3600.0
+    
+    return W_air_kg_s
+
+
+def analisi_exp(all_data, diaphragm_data, M_l0, rho, h, g):
+    """
+    Itera attraverso il dizionario di dati, calcola la portata per ogni record
+    e la aggiunge al record stesso.
+    """
+    for shot_id, records in all_data.items():
+        for record in records:
+            # Calcola la portata (W) e aggiungila al record
+            W = calculate_water_flow_rate(record['diaphragm'], record['dp_dia_water'], diaphragm_data, record['T_water'])
+            
+            W_air = calculate_air_flow_rate(record['Q_s'], record['p_e_rel'])
+            void_fraction = 1 - record['m_l']/M_l0 
+
+            # Aggiungi i risultati al record corrente
+            record['W_water'] = W
+            record['W_air'] = W_air
+            record['void_fraction_exp'] = void_fraction
+
+            # calcolo caduta di pressione
+            if record['type_dp'] == 'pD-pC':
+                record['dp_exp'] = rho*g*h - record['dp_transd']
+            elif record['type_dp'] == 'pC-pD':
+                record['dp_exp'] = rho*g*h + record['dp_transd']
+
+
+
+
 # --- Blocco di esecuzione principale ---
 if __name__ == "__main__":
     # Definizioni iniziali
@@ -103,13 +132,19 @@ if __name__ == "__main__":
             'B': 0.00375718       # Costante B
         }
     }
-    M_ref = 116
+    M_res = 0.116 #[kg]
+    M_l0 = 1.014 #[kg]
+    h = 1.5 #[m]
+    g = 9.81 #[m/s^2]
+    rho_water = 1000 #[kg/m^3]
 
     # 1. Leggi e prepara i dati
-    dati_esperimento = leggi_e_prepara_dati(file_da_leggere, M_ref)
+    dati_esperimento = leggi_e_prepara_dati(file_da_leggere, M_res)
 
-    # 2. Analizza i dati preparati
-    analizza_dati(dati_esperimento, diaphragm_data)
+    # 2. calcolo della void fraction sperimentale e aggiunta dei risultati al dizionario
+    analisi_exp(dati_esperimento, diaphragm_data, M_l0, rho_water, h, g)
+
+    # 3. Calcolo caduta di pressione
 
     # Se vuoi esportare il risultato pulito in un nuovo file CSV (richiede modifiche alle funzioni):
     # df.to_csv('tab_dat_flowpat_pulito.csv', sep=';', index=False, na_rep='NaN')
