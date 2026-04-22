@@ -1,6 +1,7 @@
 from numpy import record
 import pandas as pd
 import math
+import csv
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
 
@@ -18,6 +19,11 @@ def leggi_e_prepara_dati(file_path, m_ref):
         'p_rel_test', 'type_dp', 'dp_transd', 'T_water', 'm_l', 'flow_pattern'
     ]
     df.columns = new_column_names
+
+    # Forzare la conversione a numerico delle colonne rilevanti, gestendo errori
+    cols_to_numeric = ['Q_s', 'p_e_rel', 'dp_dia_water', 'p_rel_test', 'dp_transd', 'T_water', 'm_l']
+    for col in cols_to_numeric:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
 
     # Pulisci i dati
     df = df.dropna(how='all')
@@ -113,7 +119,7 @@ def analisi_exp(all_data, diaphragm_data, M_l0, rho, h, g, A_cross):
                 record['dp_exp'] = rho*g*h - record['dp_transd'] #[Pa]
             elif record['type_dp'] == 'pC-pD':
                 record['dp_exp'] = rho*g*h + record['dp_transd'] #[Pa]
-            elif record['type_dp'] == 'null':
+            elif record['type_dp'] == 'Null':
                 record['dp_exp'] = None
             
             # calcolo titolo
@@ -220,7 +226,7 @@ def get_friction_factor(Re):
     Calcola il fattore di attrito di Darcy per tubo liscio.
     """
     if Re < 2000:
-        return 64.0 / Re  # Moto laminare
+        return 64.0 / Re  # Moto laminare Darcy
     else:
         return 0.316 * (Re ** -0.25)  # Moto turbolento (Blasius)
     
@@ -228,7 +234,7 @@ def calculate_homogeneous_friction_drop(x, G, D, h, rho_h, mu_l, mu_g):
     mu_h = x * mu_g + (1 - x) * mu_l
     Re_h = (G * D) / mu_h
     f_hom = get_friction_factor(Re_h)
-    return f_hom * (h / D) * G**2 / (2 * rho_h) # DA CONTROLLARE PORCODIO
+    return f_hom * (h / D) * G**2 / (2 * rho_h) 
 
 
 def calculate_friedel_friction_drop(x, G, D, h, rho_l, rho_g, rho_h, mu_l, mu_g, sigma):
@@ -284,7 +290,7 @@ def calcola_valori_derivati(all_data, diaphragm_data, M_l0, D, A):
 
             mu_l = CP.PropsSI('V', 'T', record['T_water'] + 273.15, 'P', 101325, 'Water')
             mu_g = CP.PropsSI('V', 'T', 20 + 273.15, 'P', 101325 + record['p_rel_test'], 'Air')
-            sigma = PropsSI('I', 'T', record['T_water'] + 273.15, 'P', 101325, 'Water')
+            sigma = PropsSI('I', 'T', record['T_water'] + 273.15, 'Q', 0, 'Water') # Use Q=0 for saturated liquid property
             # --- 2. Calcolo Void Fraction con i modelli ---
             
             # Modello Omogeneo
@@ -323,9 +329,107 @@ def calcola_valori_derivati(all_data, diaphragm_data, M_l0, D, A):
             record['dp_fric_hom'] = dp_fric_hom
 
             # delta p attrito friedel
-            dp_fric_friedel = calculate_friedel_friction_drop(record['x_exp'], record['G_exp'], D, h, record['rho_l'], record['rho_g'], rho_h, mu_l, mu_g)
+            dp_fric_friedel = calculate_friedel_friction_drop(record['x_exp'], record['G_exp'], D, h, record['rho_l'], record['rho_g'], rho_h, mu_l, mu_g, sigma)
             record['dp_fric_friedel'] = dp_fric_friedel
 
+
+def crea_dizionario_finale(all_data):
+    """
+    Costruisce un dizionario finale con, per ogni record:
+      - tutti gli alpha (sperimentale + correlazioni)
+      - dp_exp (totale misurata)
+      - dp totali predette:
+          * hom (friction) + hom (elevation)
+          * friedel (friction) + {zivi, chisholm, cise, drift_flux} (elevation)
+    Arrotonda tutti i valori numerici a 4 cifre decimali.
+    """
+    risultati = {}
+
+    for shot_id, records in all_data.items():
+        risultati[shot_id] = []
+
+        for record in records:
+            # Funzione helper per arrotondare i valori se sono numerici
+            def round_if_numeric(value, decimals=4):
+                if isinstance(value, (int, float)):
+                    try:
+                        return round(value, decimals)
+                    except (TypeError, ValueError):
+                        # Restituisce il valore originale se non può essere arrotondato
+                        return value
+                return value
+
+            # Calcola le somme prima per chiarezza
+            dp_tot_hom_hom = record.get('dp_hom', 0) + record.get('dp_fric_hom', 0)
+            dp_tot_friedel_zivi = record.get('dp_zivi', 0) + record.get('dp_fric_friedel', 0)
+            dp_tot_friedel_chisholm = record.get('dp_chisholm', 0) + record.get('dp_fric_friedel', 0)
+            dp_tot_friedel_cise = record.get('dp_cise', 0) + record.get('dp_fric_friedel', 0)
+            dp_tot_friedel_drift_flux = record.get('dp_drift_flux', 0) + record.get('dp_fric_friedel', 0)
+
+            nuovo = {
+                # Identificativi utili (facoltativi, rimuovili se non ti servono)
+                'test': record.get('test'),
+                'flow_pattern': record.get('flow_pattern'),
+                'x_exp': round_if_numeric(record.get('x_exp')),
+                'G_exp': round_if_numeric(record.get('G_exp')),
+                'j_g': round_if_numeric(record.get('j_g')),
+                'j_l': round_if_numeric(record.get('j_l')),
+
+                # --- Void fraction ---
+                'alpha_exp':        round_if_numeric(record.get('void_fraction_exp')),
+                'alpha_hom':        round_if_numeric(record.get('alpha_hom')),
+                'alpha_zivi':       round_if_numeric(record.get('alpha_zivi')),
+                'alpha_chisholm':   round_if_numeric(record.get('alpha_chisholm')),
+                'alpha_cise':       round_if_numeric(record.get('alpha_cise')),
+                'alpha_drift_flux': round_if_numeric(record.get('alpha_drift_flux')),
+
+                # --- Caduta di pressione sperimentale (totale misurata) ---
+                'dp_exp': round_if_numeric(record.get('dp_exp')),
+
+                # --- Cadute di pressione predette (elevation + friction) ---
+                'dp_tot_hom_hom': round_if_numeric(dp_tot_hom_hom),
+                'dp_tot_friedel_zivi': round_if_numeric(dp_tot_friedel_zivi),
+                'dp_tot_friedel_chisholm': round_if_numeric(dp_tot_friedel_chisholm),
+                'dp_tot_friedel_cise': round_if_numeric(dp_tot_friedel_cise),
+                'dp_tot_friedel_drift_flux': round_if_numeric(dp_tot_friedel_drift_flux),
+            }
+            risultati[shot_id].append(nuovo)
+
+    return risultati
+
+
+
+def esporta_csv(risultati_finali, file_output='risultati.csv'):
+    """
+    Esporta il dizionario finale in un unico CSV (long format).
+    Ogni riga = un record. Il campo 'shot_id' identifica il test.
+    """
+    # Colonne nell'ordine in cui le vuoi nel CSV
+    colonne = [
+        'shot_id', 'test', 'flow_pattern',
+        'x_exp', 'G_exp', 'j_g', 'j_l',
+        # Void fraction
+        'alpha_exp', 'alpha_hom', 'alpha_zivi',
+        'alpha_chisholm', 'alpha_cise', 'alpha_drift_flux',
+        # Cadute di pressione [Pa]
+        'dp_exp',
+        'dp_tot_hom_hom',
+        'dp_tot_friedel_zivi',
+        'dp_tot_friedel_chisholm',
+        'dp_tot_friedel_cise',
+        'dp_tot_friedel_drift_flux',
+    ]
+
+    with open(file_output, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=colonne, delimiter=';')
+        writer.writeheader()
+        for shot_id, records in risultati_finali.items():
+            for rec in records:
+                riga = {'shot_id': shot_id}
+                riga.update({k: rec.get(k) for k in colonne if k != 'shot_id'})
+                writer.writerow(riga)
+
+    print(f"CSV salvato in: {file_output}")
 
 # --- Blocco di esecuzione principale ---
 if __name__ == "__main__":
@@ -360,5 +464,10 @@ if __name__ == "__main__":
 
     # 3. Calcolo dei risultati con correlazioni
     calcola_valori_derivati(dati_esperimento, diaphragm_data, M_l0, Diameter, A_cross)
-    # Se vuoi esportare il risultato pulito in un nuovo file CSV (richiede modifiche alle funzioni):
-    # df.to_csv('tab_dat_flowpat_pulito.csv', sep=';', index=False, na_rep='NaN')
+
+    # 4. Dizionario finale "pulito"
+    risultati_finali = crea_dizionario_finale(dati_esperimento)
+
+    # 5. Export CSV
+    esporta_csv(risultati_finali, 'lab/risultati_analisi.csv')
+   
