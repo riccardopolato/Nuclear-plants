@@ -48,19 +48,24 @@ plt.show()
 
 
 # ==========================================
-# GRAFICO 2: PRESSURE DROP
+# GRAFICO 2: PRESSURE DROP (Tutte le 5 combinazioni)
 # ==========================================
 plt.figure(figsize=(8, 8))
 
-# Trovo il valore massimo per impostare la scala degli assi in modo simmetrico
-max_val = max(df['dp_exp'].max(), df[['dp_tot_hom_hom', 'dp_tot_friedel_drift_flux']].max().max())
-max_val = np.ceil(max_val / 10000) * 10000  # Arrotondo ai 10.000 superiori
-if max_val < 40000: 
-    max_val = 40000
+# Trovo il valore massimo includendo TUTTE le colonne calcolate
+max_val = max(
+    df['dp_exp'].max(), 
+    df[['dp_tot_hom_hom', 'dp_tot_friedel_zivi', 'dp_tot_friedel_chisholm', 'dp_tot_friedel_cise', 'dp_tot_friedel_drift_flux']].max().max()
+)
+# Arrotondo al multiplo di 5.000 superiore per "tagliare" gli assi su misura
+max_val = np.ceil(max_val / 5000) * 5000
 
-# Disegno i punti per i modelli scelti
-plt.scatter(df['dp_exp'], df['dp_tot_hom_hom'], marker='o', color='cornflowerblue', label='Homogeneous', s=70, zorder=3)
-plt.scatter(df['dp_exp'], df['dp_tot_friedel_drift_flux'], marker='o', color='darkorange', label='Friedel-Drift', s=70, zorder=3)
+# Disegno i punti per TUTTE le 5 combinazioni
+plt.scatter(df['dp_exp'], df['dp_tot_hom_hom'], marker='o', color='cornflowerblue', label='Homogeneous (Frict+Elev)', s=70, zorder=3)
+plt.scatter(df['dp_exp'], df['dp_tot_friedel_zivi'], marker='s', color='darkorange', label='Friedel + Zivi', s=60, zorder=3)
+plt.scatter(df['dp_exp'], df['dp_tot_friedel_chisholm'], marker='^', color='forestgreen', label='Friedel + Chisholm', s=70, zorder=3)
+plt.scatter(df['dp_exp'], df['dp_tot_friedel_cise'], marker='D', color='crimson', label='Friedel + CISE', s=50, zorder=3)
+plt.scatter(df['dp_exp'], df['dp_tot_friedel_drift_flux'], marker='*', color='purple', label='Friedel + Drift Flux', s=100, zorder=3)
 
 # Creo i valori per le linee di riferimento (diagonale e +/- 20%)
 x_vals2 = np.linspace(0, max_val, 100)
@@ -83,5 +88,5 @@ plt.legend(bbox_to_anchor=(1.05, 0.5), loc='center left', frameon=False)
 
 # Aggiusto i margini e salvo/mostro l'immagine
 plt.tight_layout()
-plt.savefig('pressure_drop_plot.png', dpi=300, bbox_inches='tight')
+plt.savefig('pressure_drop_all_models_plot.png', dpi=300, bbox_inches='tight')
 plt.show()
