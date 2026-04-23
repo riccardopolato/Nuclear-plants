@@ -31,7 +31,7 @@ def leggi_e_prepara_dati(file_path, m_ref):
 
     # Aggiungi M_ref alla colonna m_l
     df['m_l'] = df['m_l']/1000 + m_ref
-
+    df['dp_transd'] = df['dp_transd']*100 # conversione da mbar a Pa
     # Crea il dizionario raggruppando per 'test'
     all_data = {}
     for shot_id, group in df.groupby('test'):
@@ -40,7 +40,7 @@ def leggi_e_prepara_dati(file_path, m_ref):
     return all_data
 
 
-def calculate_water_flow_rate(diaphragm_type, delta_p_mbar, diaphragm_data, temperature_c):
+def calculate_water_flow_rate(diaphragm_type, delta_p, diaphragm_data, temperature_c):
     """
     Calcola la portata massica dell'acqua in kg/s.
     
@@ -62,15 +62,12 @@ def calculate_water_flow_rate(diaphragm_type, delta_p_mbar, diaphragm_data, temp
     B = params['B']
 
     rho = PropsSI('D', 'T', temperature_c + 273.15, 'P', 101325, 'Water')
-
-    # Conversione della caduta di pressione da mbar a Pascal (1 mbar = 100 Pa)
-    delta_p_pa = delta_p_mbar * 100
     
     # Calcolo dell'area della sezione di passaggio del diaframma
     area = (math.pi * d**2) / 4
     
     # Calcolo della portata massica (W) in kg/s
-    W = alpha_mq * area * math.sqrt(2 * rho * delta_p_pa) + B
+    W = alpha_mq * area * math.sqrt(2 * rho * delta_p) + B
     
     return W
 
