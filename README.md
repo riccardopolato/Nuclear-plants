@@ -21,6 +21,7 @@ This laboratory exercise focuses on the analysis of two-phase (air-water) flow i
 - It determines the experimental void fraction and total pressure drop from the measured data.
 - It compares these experimental results with the predictions of several widely-used correlations for void fraction (Homogeneous, Zivi, Chisholm, CISE, Drift-Flux) and pressure drop (including friction models like Friedel).
 - The final comparison, containing both experimental and theoretical values, is exported to `risultati_analisi.csv`.
+- The results are then plotted in three graphs that compare the various models with the experiment: one for the void fraction comparison, one for the pressure comparison, and one to understand the flow pattern.
 
 ---
 
