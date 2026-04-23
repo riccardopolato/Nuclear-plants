@@ -149,5 +149,3 @@ for idx, row in df_data.iterrows():
 
 plt.savefig(FIGURES_DIR / 'hewitt_roberts_with_data.png', dpi=300, bbox_inches='tight')
 plt.show()
-
-a =0
