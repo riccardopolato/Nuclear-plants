@@ -113,8 +113,21 @@ def temperature_profile(h_profile, p_sys):
     - T_profile: profilo di temperatura (°C)
     """
     T_profile = CP.PropsSI('T', 'H', h_profile, 'P', p_sys, 'Water') - 273.15  # °C
-    
+        # La temperatura non può superare quella di saturazione nel calcolo dell'entalpia
+    T_profile = np.minimum(T_profile, T_sat)
     return T_profile
+
+# 5) EQUILIBRIUM QUALITY PROFILE
+def equilibrium_quality_profile(h_profile, p_sys):
+    """
+    Calcola il profilo di titolo di equilibrio (equilibrium quality) lungo l'asse z.
+    x_eq = (h - h_ls) / (h_vs - h_ls)
+    """
+    h_ls = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water')  # Entalpia liquido saturo
+    h_vs = CP.PropsSI('H', 'P', p_sys, 'Q', 1, 'Water')  # Entalpia vapore saturo
+    
+    x_eq_profile = (h_profile - h_ls) / (h_vs - h_ls)
+    return x_eq_profile
 
 
 # ============================================================================
@@ -155,6 +168,8 @@ if __name__ == "__main__":
                                           p_sys, P_nom, n_rods, D_in_clad, H_active, F_q)
     
     T_profile = temperature_profile(h_profile, p_sys)
+
+    x_eq_profile = equilibrium_quality_profile(h_profile, p_sys)
     
     # PLOT
     plt.figure(figsize=(10, 6))
