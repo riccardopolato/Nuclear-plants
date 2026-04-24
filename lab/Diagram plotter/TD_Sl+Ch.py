@@ -1,7 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
 
-file_csv = "TD_Sl+Ch.csv"
+file_csv = Path(__file__).resolve().parent / "TD_Sl+Ch.csv"
 
 df = pd.read_csv(file_csv, header=None, names=["x", "y"])
 df["x"] = pd.to_numeric(df["x"], errors="coerce")
@@ -18,7 +19,7 @@ ax.set_xscale("log")
 
 # etichette assi
 ax.set_xlabel(r"$\frac{J}{\sqrt{gD}}$")
-ax.set_ylabel(r"$\beta$")
+ax.set_ylabel(r"$\alpha$")
 
 ax.set_title("Taitel-Dukler: Slug / Churn transition")
 ax.grid(True, which="both", linestyle="--", alpha=0.35)

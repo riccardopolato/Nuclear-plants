@@ -1,7 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
 
-file_csv = "TD_Bb+SlCh.csv"
+file_csv = Path(__file__).resolve().parent / "TD_Bb+SlCh.csv"
 
 df = pd.read_csv(file_csv, header=None, names=["x", "y"])
 df["x"] = pd.to_numeric(df["x"], errors="coerce")

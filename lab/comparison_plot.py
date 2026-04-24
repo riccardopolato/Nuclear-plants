@@ -1,6 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import re
+import runpy
 from pathlib import Path
 
 
@@ -90,14 +92,13 @@ plt.legend(bbox_to_anchor=(1.05, 0.5), loc='center left', frameon=False)
 # Aggiusto i margini e salvo/mostro l'immagine
 plt.tight_layout()
 plt.savefig(FIGURES_DIR / 'pressure_drop_all_models_plot.png', dpi=300, bbox_inches='tight')
-plt.show()
 
 
 
 # %% Plot con Diagram plotter
 # Hewitt-Roberts 
 # Eseguo lo script originale
-exec(open('lab/Diagram plotter/Hewitt_Roberts.py').read())
+runpy.run_path('lab/Diagram plotter/Hewitt_Roberts.py')
 
 # Estraggo i dati
 df_data = pd.read_csv('lab/risultati_analisi.csv', sep=';')
@@ -148,4 +149,118 @@ for idx, row in df_data.iterrows():
                 zorder=4)
 
 plt.savefig(FIGURES_DIR / 'hewitt_roberts_with_data.png', dpi=300, bbox_inches='tight')
+
+
+# %% Plot con Diagram plotter
+# Taitel-Dukler: Slug/Churn e Bubbly/Slug-Churn
+
+G = 9.81
+D_TUBE = 26e-3  # 26 mm in metri
+SIGMA_WATER = 0.072  # N/m, valore tipico in condizioni ambiente
+
+
+def normalize_pattern_tokens(pattern):
+    text = str(pattern).strip().lower()
+    text = text.replace('anular', 'annular')
+    tokens = [t for t in re.split(r'[^a-z]+', text) if t]
+    return set(tokens)
+
+
+def classify_td_target(pattern):
+    tokens = normalize_pattern_tokens(pattern)
+    has_slug = 'slug' in tokens or 'slugs' in tokens
+    has_churn = 'churn' in tokens
+    has_bubble = 'bubble' in tokens or 'bubbly' in tokens or 'bubbles' in tokens
+
+    # Caso 1: solo slug oppure solo churn (non entrambi)
+    if has_slug ^ has_churn:
+        return 'sl_ch'
+
+    # Caso 2: bubble (anche combinato) oppure slug/churn insieme
+    if has_bubble or (has_slug and has_churn):
+        return 'bb_slch'
+
+    return None
+
+
+td_data = pd.read_csv('lab/risultati_analisi.csv', sep=';')
+td_data = td_data.dropna(subset=['j_l', 'j_g', 'rho_l', 'rho_g', 'alpha_exp', 'flow_pattern'])
+
+# --- TD_Sl+Ch: x = J/sqrt(gD), y = alpha_exp ---
+runpy.run_path('lab/Diagram plotter/TD_Sl+Ch.py')
+
+for _, row in td_data.iterrows():
+    if classify_td_target(row['flow_pattern']) != 'sl_ch':
+        continue
+
+    j_total = row['j_l'] + row['j_g']
+    x_td_slch = j_total / np.sqrt(G * D_TUBE)
+    y_td_slch = row['alpha_exp']
+    label_text = f"{int(row['shot_id'])}:{pattern_to_sigla(row['flow_pattern'])}"
+
+    plt.scatter(
+        x_td_slch,
+        y_td_slch,
+        color='red',
+        s=80,
+        marker='o',
+        zorder=3,
+        edgecolors='darkred',
+        linewidth=1.5
+    )
+
+    plt.annotate(
+        label_text,
+        xy=(x_td_slch, y_td_slch),
+        xytext=(5, 5),
+        textcoords='offset points',
+        fontsize=7,
+        color='darkred',
+        weight='bold',
+        zorder=4,
+    )
+
+plt.savefig(FIGURES_DIR / 'td_slug_churn_with_data.png', dpi=300, bbox_inches='tight')
+
+# --- TD_Bb+SlCh: x = jg*sqrt(rho_g)/(g*(rho_l-rho_g)*sigma)^(1/4), y = jl/jg ---
+runpy.run_path('lab/Diagram plotter/TD_Bb+SlCh.py')
+
+for _, row in td_data.iterrows():
+    if classify_td_target(row['flow_pattern']) != 'bb_slch':
+        continue
+
+    if row['j_g'] <= 0:
+        continue
+
+    rho_diff = row['rho_l'] - row['rho_g']
+    if rho_diff <= 0:
+        continue
+
+    x_td_bb = (row['j_g'] * np.sqrt(row['rho_g'])) / ((G * rho_diff * SIGMA_WATER) ** 0.25)
+    y_td_bb = row['j_l'] / row['j_g']
+    label_text = f"{int(row['shot_id'])}:{pattern_to_sigla(row['flow_pattern'])}"
+
+    plt.scatter(
+        x_td_bb,
+        y_td_bb,
+        color='red',
+        s=80,
+        marker='o',
+        zorder=3,
+        edgecolors='darkred',
+        linewidth=1.5
+    )
+
+    plt.annotate(
+        label_text,
+        xy=(x_td_bb, y_td_bb),
+        xytext=(5, 5),
+        textcoords='offset points',
+        fontsize=7,
+        color='darkred',
+        weight='bold',
+        zorder=4,
+    )
+
+plt.savefig(FIGURES_DIR / 'td_bubbly_slugchurn_with_data.png', dpi=300, bbox_inches='tight')
 plt.show()
