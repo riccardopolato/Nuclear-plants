@@ -279,6 +279,25 @@ def calculate_friedel_friction_drop(x, G, D, h, rho_l, rho_g, rho_h, mu_l, mu_g,
     return dp_frict_friedel
 
 
+def calculate_single_phase_dp_dz(W_phase, rho_phase, mu_phase, D, h, A, g=9.81):
+    """
+    Calcola (dp/dz) monofase [Pa/m] come:
+    (Delta p idrostatica + Delta p attrito) / h.
+    """
+    if h <= 0 or A <= 0 or D <= 0 or rho_phase <= 0 or mu_phase <= 0:
+        return float('nan')
+
+    G_phase = W_phase / A
+    Re_phase = (G_phase * D) / mu_phase
+    if Re_phase <= 0:
+        return float('nan')
+
+    f_phase = get_friction_factor(Re_phase)
+    dp_fric = f_phase * (h / D) * (G_phase**2) / (2 * rho_phase)
+    dp_hydro = rho_phase * g * h
+    return (dp_hydro + dp_fric) / h
+
+
 def calcola_valori_derivati(all_data, diaphragm_data, M_l0, D, A):
     """
     Itera attraverso i dati, calcola le portate, le proprietà termofisiche
@@ -331,6 +350,17 @@ def calcola_valori_derivati(all_data, diaphragm_data, M_l0, D, A):
             dp_fric_friedel = calculate_friedel_friction_drop(record['x_exp'], record['G_exp'], D, h, record['rho_l'], record['rho_g'], rho_h, mu_l, mu_g, sigma)
             record['dp_fric_friedel'] = dp_fric_friedel
 
+            # Parametro di Martinelli X = sqrt((dp/dz)_l / (dp/dz)_g)
+            dp_dz_l = calculate_single_phase_dp_dz(record['W_water'], record['rho_l'], mu_l, D, h, A, g)
+            dp_dz_g = calculate_single_phase_dp_dz(record['W_air'], record['rho_g'], mu_g, D, h, A, g)
+            if dp_dz_g <= 0 or math.isnan(dp_dz_l) or math.isnan(dp_dz_g):
+                record['X_martinelli'] = float('nan')
+            else:
+                record['X_martinelli'] = math.sqrt(dp_dz_l / dp_dz_g)
+
+            record['dp_dz_l_single'] = dp_dz_l
+            record['dp_dz_g_single'] = dp_dz_g
+
 
 def crea_dizionario_finale(all_data):
     """
@@ -377,6 +407,9 @@ def crea_dizionario_finale(all_data):
                 'rho_g': round_if_numeric(record.get('rho_g')),
                 'W_water': round_if_numeric(record.get('W_water')),
                 'W_air': round_if_numeric(record.get('W_air')),
+                'dp_dz_l_single': round_if_numeric(record.get('dp_dz_l_single')),
+                'dp_dz_g_single': round_if_numeric(record.get('dp_dz_g_single')),
+                'X_martinelli': round_if_numeric(record.get('X_martinelli')),
 
                 # --- Void fraction ---
                 'alpha_exp':        round_if_numeric(record.get('void_fraction_exp')),
@@ -411,6 +444,7 @@ def esporta_csv(risultati_finali, file_output='risultati.csv'):
     colonne = [
         'shot_id', 'test', 'flow_pattern',
         'x_exp', 'G_exp', 'j_g', 'j_l', 'rho_l', 'rho_g', 'W_water', 'W_air',
+        'dp_dz_l_single', 'dp_dz_g_single', 'X_martinelli',
         # Void fraction
         'alpha_exp', 'alpha_hom', 'alpha_zivi',
         'alpha_chisholm', 'alpha_cise', 'alpha_drift_flux',

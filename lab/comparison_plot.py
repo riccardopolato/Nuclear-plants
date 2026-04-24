@@ -167,20 +167,48 @@ def normalize_pattern_tokens(pattern):
 
 
 def classify_td_target(pattern):
+    # Mantengo la funzione per retrocompatibilita, ma i filtri TD sono ora indipendenti.
+    return None
+
+
+def canonical_sigla(pattern):
+    """Converte il flow pattern in una sigla canonica (es. S/C, B/S, C/A)."""
     tokens = normalize_pattern_tokens(pattern)
     has_slug = 'slug' in tokens or 'slugs' in tokens
     has_churn = 'churn' in tokens
     has_bubble = 'bubble' in tokens or 'bubbly' in tokens or 'bubbles' in tokens
+    has_annular = 'annular' in tokens
 
-    # Caso 1: solo slug oppure solo churn (non entrambi)
-    if has_slug ^ has_churn:
-        return 'sl_ch'
+    if has_bubble and has_slug:
+        return 'B/S'
+    if has_slug and has_churn:
+        return 'S/C'
+    if has_churn and has_annular:
+        return 'C/A'
+    if has_bubble:
+        return 'B'
+    if has_slug:
+        return 'S'
+    if has_churn:
+        return 'C'
+    if has_annular:
+        return 'A'
+    return pattern_to_sigla(pattern)
 
-    # Caso 2: bubble (anche combinato) oppure slug/churn insieme
-    if has_bubble or (has_slug and has_churn):
-        return 'bb_slch'
 
-    return None
+def include_td_slug_churn(pattern):
+    # Accetta: S, S/C, C
+    return canonical_sigla(pattern) in {'S', 'S/C', 'C'}
+
+
+def include_td_bubbly_slugchurn(pattern):
+    # Accetta: B, S, C, B/S, S/C
+    return canonical_sigla(pattern) in {'B', 'S', 'C', 'B/S', 'S/C'}
+
+
+def include_td_annular_slugchurn(pattern):
+    # Accetta: S/C, C, C/A, A
+    return canonical_sigla(pattern) in {'S/C', 'C', 'C/A', 'A'}
 
 
 td_data = pd.read_csv('lab/risultati_analisi.csv', sep=';')
@@ -190,7 +218,7 @@ td_data = td_data.dropna(subset=['j_l', 'j_g', 'rho_l', 'rho_g', 'alpha_exp', 'f
 runpy.run_path('lab/Diagram plotter/TD_Sl+Ch.py')
 
 for _, row in td_data.iterrows():
-    if classify_td_target(row['flow_pattern']) != 'sl_ch':
+    if not include_td_slug_churn(row['flow_pattern']):
         continue
 
     j_total = row['j_l'] + row['j_g']
@@ -226,7 +254,7 @@ plt.savefig(FIGURES_DIR / 'td_slug_churn_with_data.png', dpi=300, bbox_inches='t
 runpy.run_path('lab/Diagram plotter/TD_Bb+SlCh.py')
 
 for _, row in td_data.iterrows():
-    if classify_td_target(row['flow_pattern']) != 'bb_slch':
+    if not include_td_bubbly_slugchurn(row['flow_pattern']):
         continue
 
     if row['j_g'] <= 0:
@@ -263,4 +291,46 @@ for _, row in td_data.iterrows():
     )
 
 plt.savefig(FIGURES_DIR / 'td_bubbly_slugchurn_with_data.png', dpi=300, bbox_inches='tight')
+
+# --- TD_An+SlCh: x = X_martinelli, y = jg*sqrt(rho_g)/(g*(rho_l-rho_g)*sigma)^(1/4) ---
+runpy.run_path('lab/Diagram plotter/TD_An+SlCh.py')
+
+for _, row in td_data.iterrows():
+    if not include_td_annular_slugchurn(row['flow_pattern']):
+        continue
+
+    if pd.isna(row.get('X_martinelli')) or row['X_martinelli'] <= 0:
+        continue
+
+    rho_diff = row['rho_l'] - row['rho_g']
+    if rho_diff <= 0:
+        continue
+
+    x_td_an = row['X_martinelli']
+    y_td_an = (row['j_g'] * np.sqrt(row['rho_g'])) / ((G * rho_diff * SIGMA_WATER) ** 0.25)
+    label_text = f"{int(row['shot_id'])}:{pattern_to_sigla(row['flow_pattern'])}"
+
+    plt.scatter(
+        x_td_an,
+        y_td_an,
+        color='red',
+        s=80,
+        marker='o',
+        zorder=3,
+        edgecolors='darkred',
+        linewidth=1.5
+    )
+
+    plt.annotate(
+        label_text,
+        xy=(x_td_an, y_td_an),
+        xytext=(5, 5),
+        textcoords='offset points',
+        fontsize=7,
+        color='darkred',
+        weight='bold',
+        zorder=4,
+    )
+
+plt.savefig(FIGURES_DIR / 'td_annular_slugchurn_with_data.png', dpi=300, bbox_inches='tight')
 plt.show()
