@@ -375,6 +375,8 @@ def crea_dizionario_finale(all_data):
                 'j_l': round_if_numeric(record.get('j_l')),
                 'rho_l': round_if_numeric(record.get('rho_l')),
                 'rho_g': round_if_numeric(record.get('rho_g')),
+                'W_water': round_if_numeric(record.get('W_water')),
+                'W_air': round_if_numeric(record.get('W_air')),
 
                 # --- Void fraction ---
                 'alpha_exp':        round_if_numeric(record.get('void_fraction_exp')),
@@ -408,7 +410,7 @@ def esporta_csv(risultati_finali, file_output='risultati.csv'):
     # Colonne nell'ordine in cui le vuoi nel CSV
     colonne = [
         'shot_id', 'test', 'flow_pattern',
-        'x_exp', 'G_exp', 'j_g', 'j_l', 'rho_l', 'rho_g',
+        'x_exp', 'G_exp', 'j_g', 'j_l', 'rho_l', 'rho_g', 'W_water', 'W_air',
         # Void fraction
         'alpha_exp', 'alpha_hom', 'alpha_zivi',
         'alpha_chisholm', 'alpha_cise', 'alpha_drift_flux',
@@ -431,6 +433,25 @@ def esporta_csv(risultati_finali, file_output='risultati.csv'):
                 writer.writerow(riga)
 
     print(f"CSV salvato in: {file_output}")
+
+def esporta_portate_csv(risultati_finali, file_output='portate.csv'):
+    """
+    Esporta le portate di aria e acqua in un file CSV separato.
+    """
+    colonne = [
+        'shot_id', 'test', 'W_air', 'W_water'
+    ]
+
+    with open(file_output, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=colonne, delimiter=';')
+        writer.writeheader()
+        for shot_id, records in risultati_finali.items():
+            for rec in records:
+                riga = {'shot_id': shot_id}
+                riga.update({k: rec.get(k) for k in colonne if k != 'shot_id'})
+                writer.writerow(riga)
+
+    print(f"CSV con portate salvato in: {file_output}")
 
 # --- Blocco di esecuzione principale ---
 if __name__ == "__main__":
@@ -471,4 +492,4 @@ if __name__ == "__main__":
 
     # 5. Export CSV
     esporta_csv(risultati_finali, 'lab/risultati_analisi.csv')
-   
+    esporta_portate_csv(risultati_finali, 'lab/portate.csv')
