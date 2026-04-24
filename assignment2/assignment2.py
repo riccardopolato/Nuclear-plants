@@ -100,7 +100,7 @@ def coolant_specific_enthalpy(z, G_avg, A_c, w, Dout_clad, D_pellet, p_sys,
     h_profile = h_in + 1.0267 * (q_v_max * A_fuel * H_e) / (W_hc * np.pi) * \
                 (np.sin(np.pi * z / H_e) + np.sin(np.pi * H_active / 2 / H_e))  # J/kg
     
-    return h_profile
+    return h_profile, W_hc
 
 
 # 4) TEMPERATURE PROFILE
@@ -134,14 +134,8 @@ def equilibrium_quality_profile(h_profile, p_sys):
     return x_eq_profile, H_fg
 
 # 6) CALCULATION OF THE OUTER CLADDING TEMPERATURE
-### CONTROLLARE PROFILO T, TROPPO VERSO IL BASSO
-def T_outer_cladding_profile(T_sat_K, G_avg, D_eq, T_profile, p_sys, C, q_flux):
-    """
-    Calcola il coefficiente di scambio termico (h) usando la legge di Dittus-Boelter.
-    
-    """
-    
-    def safe_props(prop, T_K, P):
+
+def safe_props(prop, T_K, P, T_sat_K):
         try:
             # Riduciamo leggermente T per evitare conflitti con la curva di saturazione
             if T_K >= T_sat_K - 0.01:
@@ -149,11 +143,18 @@ def T_outer_cladding_profile(T_sat_K, G_avg, D_eq, T_profile, p_sys, C, q_flux):
             return CP.PropsSI(prop, 'T', T_K, 'P', P, 'Water')
         except ValueError:
             return CP.PropsSI(prop, 'P', P, 'Q', 0, 'Water')
+        
+### CONTROLLARE PROFILO T, TROPPO VERSO IL BASSO
+def T_outer_cladding_profile(T_sat_K, G_avg, D_eq, T_profile, p_sys, C, q_flux):
+    """
+    Calcola il coefficiente di scambio termico (h) usando la legge di Dittus-Boelter.
+    
+    """
 
     # Vettorizzazione iterando sui valori di T_profile (con conversione in Kelvin)
-    mu_profile = np.array([safe_props('V', T + 273.15, p_sys) for T in T_profile])
-    k_profile = np.array([safe_props('L', T + 273.15, p_sys) for T in T_profile])
-    cp_profile = np.array([safe_props('C', T + 273.15, p_sys) for T in T_profile])
+    mu_profile = np.array([safe_props('V', T + 273.15, p_sys, T_sat_K) for T in T_profile])
+    k_profile = np.array([safe_props('L', T + 273.15, p_sys, T_sat_K) for T in T_profile])
+    cp_profile = np.array([safe_props('C', T + 273.15, p_sys, T_sat_K) for T in T_profile])
     
     # Calcolo dei numeri adimensionali
     Re_profile = (G_avg * D_eq) / mu_profile
@@ -219,8 +220,8 @@ def flow_quality_two_phase(h_l, T_sat_K, T_cool, index_det, H_fg, p_sys, q_flux,
     rho_g_sat = CP.PropsSI('D', 'T', T_sat_K, 'Q', 1, 'Water')
     i_l_sat = CP.PropsSI('H', 'T', T_sat_K, 'Q', 0, 'Water')  # J/kg (entalpia liquido saturo)
     # Densità liquido (in funzione della temperatura locale T_cool)
-    rho_l = np.array([CP.PropsSI('D', 'T', T + 273.15, 'P', p_sys, 'Water') for T in T_cool])
-    i_l = np.array([CP.PropsSI('H', 'T', T + 273.15, 'P', p_sys, 'Water') for T in T_cool])  # J/kg (entalpia liquido a T_cool)
+    rho_l = np.array([safe_props('D', T + 273.15, p_sys, T_sat_K) for T in T_cool])
+    i_l = np.array([safe_props('H', T + 273.15, p_sys, T_sat_K) for T in T_cool])  # J/kg (entalpia liquido a T_cool)
 
     eps = rho_l /(rho_g_sat*H_fg)*(i_l_sat - i_l)  # quality evaporativa
     
@@ -274,7 +275,7 @@ if __name__ == "__main__":
 
     G_avg = average_mass_velocity(m_flow_eff, A_flow_eff)
     
-    h_profile = coolant_specific_enthalpy(z, G_avg, A_c, w, Dout_clad, D_pellet, 
+    h_profile, W_hc = coolant_specific_enthalpy(z, G_avg, A_c, w, Dout_clad, D_pellet, 
                                           p_sys, P_nom, n_rods, D_in_clad, H_active, F_q)
     
     T_profile = temperature_profile(h_profile, p_sys)
@@ -285,7 +286,7 @@ if __name__ == "__main__":
     
     T_det, z_det, first_detachment_idx= detachment(h_single_phase, q_flux, T_sat, T_profile, z)
 
-
+    x_flow = flow_quality_two_phase(h_single_phase, T_sat, T_profile, first_detachment_idx, H_fg, p_sys, q_flux, z, z_det, p_sys, W_hc)
 
     # PLOT
     plt.figure(figsize=(10, 6))
@@ -322,4 +323,11 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid()
     
+    plt.figure(figsize=(10, 6))
+    plt.plot(x_flow, z)
+    plt.title('Flow Quality Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('x (kg/kg)')
+    plt.grid()
+
     plt.show()   
