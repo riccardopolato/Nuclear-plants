@@ -114,6 +114,7 @@ def temperature_profile(h_profile, p_sys):
     """
     T_profile = CP.PropsSI('T', 'H', h_profile, 'P', p_sys, 'Water') - 273.15  # °C
         # La temperatura non può superare quella di saturazione nel calcolo dell'entalpia
+    T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water') - 273.15 # °C
     T_profile = np.minimum(T_profile, T_sat)
     return T_profile
 
@@ -128,6 +129,9 @@ def equilibrium_quality_profile(h_profile, p_sys):
     
     x_eq_profile = (h_profile - h_ls) / (h_vs - h_ls)
     return x_eq_profile
+
+# 6) CALCULATION OF THE OUTER CLADDING TEMPERATURE
+
 
 
 # ============================================================================
@@ -144,6 +148,7 @@ if __name__ == "__main__":
     F_q = 2.6  # heat flux hot channel factor
     m_flow_eff = 13456  # kg/s (portata effettiva considerando 5,9% di bypass flow)
     A_flow_eff = 3.883  # m^2 (area di flusso effettiva)
+    D_eq
     
     # DATI GEOMETRICI (square array)
     Dout_clad = 9.5e-3  # m
@@ -171,6 +176,9 @@ if __name__ == "__main__":
 
     x_eq_profile = equilibrium_quality_profile(h_profile, p_sys)
     
+   
+    
+  
     # PLOT
     plt.figure(figsize=(10, 6))
     plt.plot(qv_profile, z)
@@ -192,4 +200,15 @@ if __name__ == "__main__":
     plt.ylabel('z (m)')
     plt.xlabel('T (°C)')
     plt.grid()
+    plt.show()
+
+    plt.figure(figsize=(10, 7))
+    plt.plot(T_profile, z, 'b-', label='Temperatura Refrigerante ($T_{b}$)')
+    plt.plot(T_co_SP, z, 'r--', label='Temp. Esterna Guaina ($T_{co}$ - SP)')
+    plt.axvline(x=T_sat, color='k', linestyle=':', label='$T_{sat}$')
+    plt.title('Profili di Temperatura nel Canale Caldo (Monofase)')
+    plt.xlabel('Temperatura [°C]')
+    plt.ylabel('z [m]')
+    plt.legend()
+    plt.grid(True)
     plt.show()
