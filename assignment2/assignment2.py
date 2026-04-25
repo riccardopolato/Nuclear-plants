@@ -35,7 +35,7 @@ def volumetric_heat_generation(z, P_nom, n_rods, D_in_clad, H_active, F_q):
     
     qv_profile = q_v_max * np.cos(np.pi * z / H_e)  # W/m^3
     
-    return qv_profile
+    return qv_profile, H_e, q_avg, q_v_max
 
 
 # 2) AVERAGE MASS VELOCITY
@@ -57,8 +57,7 @@ def average_mass_velocity(m_flow_eff, A_flow_eff):
 
 
 # 3) COOLANT SPECIFIC ENTHALPY
-def coolant_specific_enthalpy(z, G_avg, A_c, w, Dout_clad, D_pellet, p_sys, 
-                               P_nom, n_rods, D_in_clad, H_active, F_q):
+def coolant_specific_enthalpy(z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_active, T_in):
     """
     Calcola il profilo di entalpia specifica del refrigerante lungo l'asse z.
     
@@ -82,23 +81,9 @@ def coolant_specific_enthalpy(z, G_avg, A_c, w, Dout_clad, D_pellet, p_sys,
     W_hc = G_avg * A_c  # kg/s (portata per canale)
     A_fuel = np.pi / 4 * D_pellet**2  # m^2 (area del combustibile)
     
-    T_in = 279.44 + 273.15  # K (temperatura di ingresso)
-    h_in = CP.PropsSI('H', 'T', T_in, 'P', p_sys, 'Water')  # J/kg
+    h_in = CP.PropsSI('H', 'T', T_in + 273.15, 'P', p_sys, 'Water')  # J/kg
     
-    # Calcolo dei parametri necessari per il profilo di generazione di calore
-    Tot_power = P_nom * 0.974
-    q_avg = Tot_power / (n_rods * np.pi * (D_in_clad/2)**2 * H_active)
-    q_v_max = q_avg * F_q
-    
-    lambda_tr = 0.0029
-    D_c = lambda_tr / 3
-    D_r = 0.16
-    L_r = 2.85
-    delta = D_c / D_r * L_r
-    H_e = H_active + 1.42 * lambda_tr + 2 * delta
-    
-    h_profile = h_in + 1.0267 * (q_v_max * A_fuel * H_e) / (W_hc * np.pi) * \
-                (np.sin(np.pi * z / H_e) + np.sin(np.pi * H_active / 2 / H_e))  # J/kg
+    h_profile = h_in + 1.0267 * (q_v_max * A_fuel * H_e) / (W_hc * np.pi) * (np.sin(np.pi * z / H_e) + np.sin(np.pi * H_active / 2 / H_e))
     
     return h_profile, W_hc
 
@@ -226,11 +211,11 @@ def flow_quality_two_phase(h_l, T_sat_K, T_cool, index_det, H_fg, p_sys, q_flux,
     eps = rho_l /(rho_g_sat*H_fg)*(i_l_sat - i_l)  # quality evaporativa
     
     # calcolo la quality                                                                                                                 
-    integr = p_H * (q_flux - q_SP) / (H_fg * W * (1 + eps))
-    z_int = z[index_det:]
-    integranda_int = integr[index_det:]
-    x_z_parziale = cumulative_trapezoid(integranda_int, z_int, initial=0)
-    x_z_totale = np.zeros_like(z)
+    q_flux_cut = q_flux[index_det:]
+    integr = p_H * (q_flux_cut - q_SP) / (H_fg * W * (1 + eps))
+    z_int = zz[index_det:]
+    x_z_parziale = cumulative_trapezoid(integr, z_int, initial=0)
+    x_z_totale = np.zeros_like(zz)
     x_z_totale[index_det:] = x_z_parziale
     return x_z_totale
 
@@ -249,6 +234,7 @@ if __name__ == "__main__":
     m_flow_eff = 13456  # kg/s (portata effettiva considerando 5,9% di bypass flow)
     A_flow_eff = 3.883  # m^2 (area di flusso effettiva)
     T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water') #[K]
+    T_in = 279.44   # C (temperatura di ingresso)
 
     # DATI GEOMETRICI (square array)
     Dout_clad = 9.5e-3  # m
@@ -268,22 +254,24 @@ if __name__ == "__main__":
     D_eq = 4 * A_c / P_wet  # m (diametro equivalente)
 
     # CHIAMATA ALLE FUNZIONI
-    qv_profile = volumetric_heat_generation(z, P_nom, n_rods, D_in_clad, H_active, F_q)
+    qv_profile, H_e, q_avg, q_v_max = volumetric_heat_generation(z, P_nom, n_rods, D_in_clad, H_active, F_q)
     
     # calcolo il q_flux
-    q_flux = qv_profile * A_c/P_wet  # W/m^2 (heat flux sulla guaina)
+    A_fuel = np.pi/4 * D_pellet**2
+    q_flux = qv_profile * A_fuel/P_wet  # W/m^2 (heat flux sulla guaina) !!!!!!!!
 
     G_avg = average_mass_velocity(m_flow_eff, A_flow_eff)
     
-    h_profile, W_hc = coolant_specific_enthalpy(z, G_avg, A_c, w, Dout_clad, D_pellet, 
-                                          p_sys, P_nom, n_rods, D_in_clad, H_active, F_q)
+    h_profile, W_hc = coolant_specific_enthalpy(z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_active, T_in)
     
     T_profile = temperature_profile(h_profile, p_sys)
 
     x_eq_profile, H_fg = equilibrium_quality_profile(h_profile, p_sys)
     
     h_single_phase, T_co, T_co_JL, T_co_SP, first_onb_idx = T_outer_cladding_profile(T_sat, G_avg, D_eq, T_profile, p_sys, C, q_flux)
-    
+    z_NB = z[first_onb_idx] if first_onb_idx is not None else None
+    T_NB = T_profile[first_onb_idx] if first_onb_idx is not None else None
+
     T_det, z_det, first_detachment_idx= detachment(h_single_phase, q_flux, T_sat, T_profile, z)
 
     x_flow = flow_quality_two_phase(h_single_phase, T_sat, T_profile, first_detachment_idx, H_fg, p_sys, q_flux, z, z_det, p_sys, W_hc)
@@ -307,6 +295,8 @@ if __name__ == "__main__":
     plt.plot(T_profile, z, label='T_coolant (°C)')
     if T_det is not None:
         plt.plot(T_det, z_det, 'ro', label=f'Detachment Point (T={T_det:.1f} °C, z={z_det:.2f} m)')
+    if T_NB is not None:
+        plt.plot(T_NB, z_NB, 'bo', label=f'ONB Point (T={T_NB:.1f} °C, z={z_NB:.2f} m)')
     plt.title('Coolant Temperature Profile along the z-axis')
     plt.ylabel('z (m)')
     plt.xlabel('T (°C)')
