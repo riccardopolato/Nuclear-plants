@@ -104,7 +104,12 @@ def temperature_profile(h_profile, p_sys):
         # La temperatura non può superare quella di saturazione nel calcolo dell'entalpia
     T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water') - 273.15 # °C
     T_profile = np.minimum(T_profile, T_sat)
-    return T_profile
+    
+    # calcolo la coordinata z in cui T_profile raggiunge T_sat
+    sat_indices = np.where(T_profile >= T_sat)[0]
+    first_sat_idx = sat_indices[0] if len(sat_indices) > 0 else None
+    
+    return T_profile, first_sat_idx
 
 # 5) EQUILIBRIUM QUALITY PROFILE
 def equilibrium_quality_profile(h_profile, p_sys):
@@ -116,6 +121,7 @@ def equilibrium_quality_profile(h_profile, p_sys):
     h_vs = CP.PropsSI('H', 'P', p_sys, 'Q', 1, 'Water')  # Entalpia vapore saturo
     H_fg = h_vs - h_ls  # Calore latente di vaporizzazione
     x_eq_profile = (h_profile - h_ls) / (h_vs - h_ls)
+    x_eq_profile = np.maximum(0, x_eq_profile)  # Forza a 0 i valori negativi
     return x_eq_profile, H_fg
 
 # 6) CALCULATION OF THE OUTER CLADDING TEMPERATURE
@@ -207,17 +213,85 @@ def flow_quality_two_phase(h_l, T_sat_K, T_cool, index_det, H_fg, p_sys, q_flux,
     # Densità liquido (in funzione della temperatura locale T_cool)
     rho_l = np.array([safe_props('D', T + 273.15, p_sys, T_sat_K) for T in T_cool])
     i_l = np.array([safe_props('H', T + 273.15, p_sys, T_sat_K) for T in T_cool])  # J/kg (entalpia liquido a T_cool)
-
-    eps = rho_l /(rho_g_sat*H_fg)*(i_l_sat - i_l)  # quality evaporativa
+    # ROUHANI
+    eps_R = rho_l /(rho_g_sat*H_fg)*(i_l_sat - i_l)  
+    # BOWRING
+    eps_B = 1.6 
     
-    # calcolo la quality                                                                                                                 
-    q_flux_cut = q_flux[index_det:]
-    integr = p_H * (q_flux_cut - q_SP) / (H_fg * W * (1 + eps))
-    z_int = zz[index_det:]
-    x_z_parziale = cumulative_trapezoid(integr, z_int, initial=0)
-    x_z_totale = np.zeros_like(zz)
-    x_z_totale[index_det:] = x_z_parziale
-    return x_z_totale
+    # helper elementare per l'integrale
+    def calc_x_z(eps_arr):
+        q_flux_cut = q_flux[index_det:]
+        integr = p_H * (q_flux_cut - q_SP) / (H_fg * W * (1 + eps_arr))
+        z_int = zz[index_det:]
+        x_z_parziale = cumulative_trapezoid(integr, z_int, initial=0)
+        
+        x_z_totale = np.zeros_like(zz)
+        x_z_totale[index_det:] = x_z_parziale
+        return x_z_totale
+
+    # calcolo la quality per entrambi i modelli                                                                                                                 
+    x_flow_R = calc_x_z(eps_R)
+    x_flow_B = calc_x_z(eps_B)
+    
+    return x_flow_R, x_flow_B
+
+# VOID FRACTION
+def void_fraction(p_sys, D_eq, zz, i_ONB, i_Det, G_avg, X_flow):
+    void_fraction_profile = np.zeros_like(zz)
+    # diverse zone: single phase --> 0, ONB-D --> linear, D--> curva
+    # tratto lineare: MAURER CORRELATION
+    # Nelle formule empiriche come Rouhani la pressione di sistema è in MPa. 
+    p_bar = p_sys / 1e5  # bar
+    R_d = 2.37e-3/p_bar**0.237 # m (raggio di una bolla ROUHANI)
+    boubble_layer_thickness = 0.0666 * R_d # m (spessore dello strato di bolle BOWRING)
+    void_fraction_D = 4*boubble_layer_thickness / D_eq # void fraction at Detachment (MAURER)
+    # tratto lineare tra ONB e Detachment
+    void_fraction_profile[i_ONB:i_Det] = np.linspace(0, void_fraction_D, i_Det - i_ONB)
+
+    # post-detachment: 
+    # 1) ZUBER FINDLAY : uso solo COLLIER-THORNE per limite su p_sys
+    C_0 = 1.13
+    C_1 = 0.5 * (1.18 + 1.4)
+    rho_g_sat = CP.PropsSI('D', 'P', p_sys, 'Q', 1, 'Water')
+    rho_l_sat = CP.PropsSI('D', 'P', p_sys, 'Q', 0, 'Water')
+    sigma = CP.PropsSI('surface_tension', 'P', p_sys, 'Q', 0, 'Water')
+    g = 9.81
+    
+    # Estraggo il titolo di vapore dal punto di distacco in poi
+    x = X_flow[i_Det:]
+    
+    # Termine di drift (drift velocity term)
+    drift_term = (sigma * g * (rho_l_sat - rho_g_sat) / rho_l_sat**2)**0.25
+    
+    # Correlazione di Zuber-Findlay (Collier-Thome per bubbly flow)
+    alpha_post_det = (x / rho_g_sat) / (C_0 * (x / rho_g_sat + (1 - x) / rho_l_sat) + C_1 * (1 / G_avg) * drift_term)
+    
+    # Raccordo il modello aggiungendo la frazione di vuoto a parete per evitare la discontinuità
+    alpha_post_det = void_fraction_D + alpha_post_det
+
+    # Inserisco i valori nel profilo totale
+    void_fraction_profile_ZF = void_fraction_profile.copy()
+    void_fraction_profile_ZF[i_Det:] = alpha_post_det
+
+    # 2) SLIP RATIO
+    S_F = (rho_l_sat / rho_g_sat)**0.5  # FAUSKE
+    S_M = (rho_l_sat / rho_g_sat)**(1/3)  # MOODY
+    
+    # Raccordo i modelli sommando la void_fraction_D (come per Z-F)
+    alpha_F = void_fraction_D + x/(x + (1-x)*rho_g_sat/rho_l_sat * S_F) 
+    alpha_M = void_fraction_D + x/(x + (1-x)*rho_g_sat/rho_l_sat * S_M)
+
+    void_fraction_profile_F = void_fraction_profile.copy()
+    void_fraction_profile_M = void_fraction_profile.copy()  
+    void_fraction_profile_F[i_Det:] = alpha_F
+    void_fraction_profile_M[i_Det:] = alpha_M
+    
+    return void_fraction_profile_ZF, void_fraction_profile_F, void_fraction_profile_M
+    
+
+
+
+
 
 # ============================================================================
 # MAIN
@@ -254,70 +328,101 @@ if __name__ == "__main__":
     D_eq = 4 * A_c / P_wet  # m (diametro equivalente)
 
     # CHIAMATA ALLE FUNZIONI
+    # 1-2) average and maximum volumetric heat generation rate
     qv_profile, H_e, q_avg, q_v_max = volumetric_heat_generation(z, P_nom, n_rods, D_in_clad, H_active, F_q)
     
     # calcolo il q_flux
     A_fuel = np.pi/4 * D_pellet**2
     q_flux = qv_profile * A_fuel/P_wet  # W/m^2 (heat flux sulla guaina) !!!!!!!!
 
+    # 3) average mass velocity 
     G_avg = average_mass_velocity(m_flow_eff, A_flow_eff)
     
+    # 4) coolant specific enthalpy and temperature profiles 
     h_profile, W_hc = coolant_specific_enthalpy(z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_active, T_in)
     
-    T_profile = temperature_profile(h_profile, p_sys)
+    T_profile, first_sat_idx = temperature_profile(h_profile, p_sys)
+    z_sat = z[first_sat_idx] if first_sat_idx is not None else None
 
+    # 5) equilibrium quality profile
     x_eq_profile, H_fg = equilibrium_quality_profile(h_profile, p_sys)
     
+    # 6) outer cladding temperature profile, flow quality and void fraction
     h_single_phase, T_co, T_co_JL, T_co_SP, first_onb_idx = T_outer_cladding_profile(T_sat, G_avg, D_eq, T_profile, p_sys, C, q_flux)
     z_NB = z[first_onb_idx] if first_onb_idx is not None else None
     T_NB = T_profile[first_onb_idx] if first_onb_idx is not None else None
 
     T_det, z_det, first_detachment_idx= detachment(h_single_phase, q_flux, T_sat, T_profile, z)
 
-    x_flow = flow_quality_two_phase(h_single_phase, T_sat, T_profile, first_detachment_idx, H_fg, p_sys, q_flux, z, z_det, p_sys, W_hc)
+    x_flow_R, x_flow_B = flow_quality_two_phase(h_single_phase, T_sat, T_profile, first_detachment_idx, H_fg, p_sys, q_flux, z, z_det, P_wet, W_hc)
 
+    # void fraction calcolata a partire dal titolo con formula di Rouhani
+    alpha_ZF, alpha_F, alpha_M = void_fraction(p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_R)
     # PLOT
-    plt.figure(figsize=(10, 6))
-    plt.plot(qv_profile, z)
-    plt.title('Volumetric Heat Generation Rate along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('q_v (W/m^3)')
-    plt.grid()
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(qv_profile, z)
+    # plt.title('Volumetric Heat Generation Rate along the z-axis')
+    # plt.ylabel('z (m)')
+    # plt.xlabel('q_v (W/m^3)')
+    # plt.grid()
+    
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(h_profile, z)
+    # plt.title('Coolant Specific Enthalpy Profile along the z-axis')
+    # plt.ylabel('z (m)')
+    # plt.xlabel('h (J/kg)')
+    # plt.grid()
+    
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(T_profile, z, label='T_coolant (°C)')
+    # if T_det is not None:
+    #     plt.plot(T_det, z_det, 'ro', label=f'Detachment Point (T={T_det:.1f} °C, z={z_det:.2f} m)')
+    # if T_NB is not None:
+    #     plt.plot(T_NB, z_NB, 'bo', label=f'ONB Point (T={T_NB:.1f} °C, z={z_NB:.2f} m)')
+    # if z_sat is not None:
+    #     plt.plot(T_sat - 273.15, z_sat, 'go', label=f'Saturated Point (T={T_sat:.1f} °C, z={z_sat:.2f} m)')
+    # plt.title('Coolant Temperature Profile along the z-axis')
+    # plt.ylabel('z (m)')
+    # plt.xlabel('T (°C)')
+    # plt.legend()
+    # plt.grid()
     
     plt.figure(figsize=(10, 6))
-    plt.plot(h_profile, z)
-    plt.title('Coolant Specific Enthalpy Profile along the z-axis')
+    plt.plot(x_eq_profile, z)
+    plt.title('Equilibrium Quality Profile along the z-axis')
     plt.ylabel('z (m)')
-    plt.xlabel('h (J/kg)')
+    plt.xlabel('x (kg/kg)')
     plt.grid()
+
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(T_co, z, label='T_co (Actual)', color='black', linewidth=2)
+    # plt.plot(T_co_JL, z, label='T_co_JL (Jens-Lottes)', linestyle='--')
+    # plt.plot(T_co_SP, z, label='T_co_SP (Single Phase)', linestyle='-.')
+    # plt.title('Outer Cladding Temperature Profile along the z-axis')
+    # plt.ylabel('z (m)')
+    # plt.xlabel('Temperature (°C)')
+    # plt.legend()
+    # plt.grid()
     
     plt.figure(figsize=(10, 6))
-    plt.plot(T_profile, z, label='T_coolant (°C)')
-    if T_det is not None:
-        plt.plot(T_det, z_det, 'ro', label=f'Detachment Point (T={T_det:.1f} °C, z={z_det:.2f} m)')
-    if T_NB is not None:
-        plt.plot(T_NB, z_NB, 'bo', label=f'ONB Point (T={T_NB:.1f} °C, z={z_NB:.2f} m)')
-    plt.title('Coolant Temperature Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('T (°C)')
-    plt.legend()
-    plt.grid()
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(T_co, z, label='T_co (Actual)', color='black', linewidth=2)
-    plt.plot(T_co_JL, z, label='T_co_JL (Jens-Lottes)', linestyle='--')
-    plt.plot(T_co_SP, z, label='T_co_SP (Single Phase)', linestyle='-.')
-    plt.title('Outer Cladding Temperature Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('Temperature (°C)')
-    plt.legend()
-    plt.grid()
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(x_flow, z)
+    plt.plot(x_flow_R, z, label="Rouhani eps")
+    plt.plot(x_flow_B, z, label="Bowring eps=1.6", linestyle='--')
     plt.title('Flow Quality Profile along the z-axis')
     plt.ylabel('z (m)')
     plt.xlabel('x (kg/kg)')
+    #plt.ylim(0.5, max(z))
+    plt.legend()
+    plt.grid()
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(alpha_ZF, z, label='Void Fraction (Zuber-Findlay)', color='blue')
+    plt.plot(alpha_F, z, label='Void Fraction (Fauske)', color='orange', linestyle='--')
+    plt.plot(alpha_M, z, label='Void Fraction (Moody)', color='green', linestyle='-.')
+    plt.title('Void Fraction Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('Void Fraction')
+    plt.ylim(-0.25, max(z))
+    plt.legend()
     plt.grid()
 
     plt.show()   
