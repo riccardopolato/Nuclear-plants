@@ -298,21 +298,59 @@ def k_zircaloy(T):
     # T in °C, restituisce W/mK
     return 11.45 + 1.425e-2 * T
 
-def T_inner_cladding_profile(T_cool, q_flux, A_clad, D_ci, D_co):
-        T_inner = np.zeros_like(T_cool)
+def T_inner_cladding_profile(T_co, q_vol, A_f, D_ci, D_co):
+        T_inner = np.zeros_like(T_co)
 
-        for i in range(len(T_cool)):
-            T_co_loc = T_cool[i]
-            q_vol_loc = q_flux[i]
+        for i in range(len(T_co)):
+            T_co_loc = T_co[i]
+            q_vol_loc = q_vol[i]
 
-            rhs = q_vol_loc * A_clad / 2 / np.pi * np.log(D_co / D_ci)
+            rhs = q_vol_loc * A_f / (2 * np.pi) * np.log(D_co / D_ci)
 
             A = 11.45
             B = 1.425e-2
 
+            # Risolvo l'equazione non lineare per T_inner
+            a = B/2
+            b = A
+            c = -rhs - (A * T_co_loc + B/2 * T_co_loc**2)
+            delta = b**2 - 4*a*c
+            if delta < 0:
+                raise ValueError("Delta negativo, nessuna soluzione reale per T_inner") 
+            # Bisogna usare la radice positiva per ottenere il valore fisico corretto
+            T_inner[i] = (-b + np.sqrt(delta)) / (2*a)
+
         return T_inner
 
+# 8) T PELLET SURFACE TEMPERATURE PROFILE
+def T_pellet_surface_profile(T_inner_cladding, q_vol, A_fuel, D_fuel, h_g_T):
+    A = q_vol * A_fuel /(np.pi * D_fuel * h_g_T)
+    return T_inner_cladding + A
+# calculate the GAP CONDUCTANCE h_g_T
+def gap_conductance():
+    # total gap conduction is the sum of radiative, contact and gap components
+    # gap component: 
+    def k_gas(T):
+        A = 0.1763e-2
+        N = 0.77163
+        return A * T**N  # W/mK
+    
+    def h_gap(k_gas, delta):
+        det = 2.54e-5  # m 
+        return k_gas / (det + delta)  # W/m^2K
+    
+    def thermal_expansion(D_Ta, T_mean, T_amb, component):
+        def alpha(T): # T in °C, restituisce 1/°C
+            if component == 'fuel':
+                return 7.87e-6 + 3.9e-9*T # 1/°C 
+            elif component == 'cladding':
+                return 5.62e-6 + 3.162e-9*T # 1/°C 
+            else:
+                raise ValueError("Componente sconosciuto")
+        return D_Ta * (1 + alpha(T_mean) * (T_mean - T_amb))
+    
 
+        
 
 # ============================================================================
 # MAIN
@@ -333,14 +371,14 @@ if __name__ == "__main__":
     T_in = fahrenheit_to_celsius(535)   # C (temperatura di ingresso)
 
     # DATI GEOMETRICI (square array)
-    Dout_clad = inches_to_meters(0.374)  # m
+    D_out_clad = inches_to_meters(0.374)  # m
     H_active = inches_to_meters(168) # m
     w = inches_to_meters(0.496)  # m (pitch, passo tra le barre)
     s_clad = inches_to_meters(0.0225)  # m (spessore guaina)
-    D_in_clad = Dout_clad - 2 * s_clad  # m (diametro interno)
+    D_in_clad = D_out_clad - 2 * s_clad  # m (diametro interno)
     D_pellet = inches_to_meters(0.3225)  # m (diametro pellet)
-    P_wet = np.pi * Dout_clad # m (perimetro bagnato)
-    C = 0.042*w/Dout_clad - 0.024  # coefficiente per la correlazione di Dittus-Boelter
+    P_wet = np.pi * D_out_clad # m (perimetro bagnato)
+    C = 0.042*w/D_out_clad - 0.024  # coefficiente per la correlazione di Dittus-Boelter
     R_eq = inches_to_meters(119.7)
 
     # DISCRETIZZAZIONE DI Z (ASSIALE)
@@ -349,7 +387,7 @@ if __name__ == "__main__":
     r = np.arange(0, R_eq + dzz, dzz)  # m (raggio, da 0 a R_eq con passo dzz)
 
     # CALCOLO AREA DI FLUSSO PER CANALE
-    A_c = w**2 - np.pi/4 * Dout_clad**2  # m^2
+    A_c = w**2 - np.pi/4 * D_out_clad**2  # m^2
     D_eq = 4 * A_c / P_wet  # m (diametro equivalente)
 
     # CHIAMATA ALLE FUNZIONI
@@ -386,17 +424,25 @@ if __name__ == "__main__":
     alpha_ZF_B, alpha_F_B, alpha_M_B = void_fraction(p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_B)
 
     # 7) Cladding inner wall temperature
-    
+    T_ci = T_inner_cladding_profile(T_co, qv_profile, A_fuel, D_in_clad, D_out_clad)
+
+    # 8) Pellet surface temperature
 
 
 
 
     
+    
+
+
+
+
+    # ---------------- PLOT ----------------
     # Crea la cartella 'plots' se non esiste
     plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plots')
     os.makedirs(plot_dir, exist_ok=True)
 
-    # PLOT
+
     plt.figure(figsize=(10, 6))
     plt.plot(qv_profile, z)
     plt.title('Volumetric Heat Generation Rate along the z-axis')
@@ -412,7 +458,7 @@ if __name__ == "__main__":
     plt.ylabel('z (m)')
     plt.xlabel('h (J/kg)')
     plt.grid()
-    plt.savefig(os.path.join(plot_dir, '2_coolant_specific_enthalpy.png'))
+    plt.savefig(os.path.join(plot_dir, '4.1_coolant_specific_enthalpy.png'))
     plt.close()
     
     plt.figure(figsize=(10, 6))
@@ -428,7 +474,7 @@ if __name__ == "__main__":
     plt.xlabel('T (°C)')
     plt.legend()
     plt.grid()
-    plt.savefig(os.path.join(plot_dir, '3_coolant_temperature_profile.png'))
+    plt.savefig(os.path.join(plot_dir, '4.2_coolant_temperature_profile.png'))
     plt.close()
     
     plt.figure(figsize=(10, 6))
@@ -437,7 +483,7 @@ if __name__ == "__main__":
     plt.ylabel('z (m)')
     plt.xlabel('x (kg/kg)')
     plt.grid()
-    plt.savefig(os.path.join(plot_dir, '4_equilibrium_quality.png'))
+    plt.savefig(os.path.join(plot_dir, '5_equilibrium_quality.png'))
     plt.close()
 
     plt.figure(figsize=(10, 6))
@@ -449,7 +495,7 @@ if __name__ == "__main__":
     plt.xlabel('Temperature (°C)')
     plt.legend()
     plt.grid()
-    plt.savefig(os.path.join(plot_dir, '5_outer_cladding_temperature.png'))
+    plt.savefig(os.path.join(plot_dir, '6.1_outer_cladding_temperature.png'))
     plt.close()
     
     plt.figure(figsize=(10, 6))
@@ -461,7 +507,7 @@ if __name__ == "__main__":
     #plt.ylim(0.5, max(z))
     plt.legend()
     plt.grid()
-    plt.savefig(os.path.join(plot_dir, '6_flow_quality.png'))
+    plt.savefig(os.path.join(plot_dir, '6.2_flow_quality.png'))
     plt.close()
 
     plt.figure(figsize=(10, 6))
@@ -477,5 +523,17 @@ if __name__ == "__main__":
     plt.ylim(-0.25, max(z))
     plt.legend()
     plt.grid()
-    plt.savefig(os.path.join(plot_dir, '7_void_fraction.png'))
+    plt.savefig(os.path.join(plot_dir, '6.3_void_fraction.png'))
     plt.close()   
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(T_ci, z, label='T_inner_cladding (°C)', color='red')
+    plt.plot(T_co, z, label='T_outer_cladding (°C)', color='black', linestyle='--')
+    plt.title('Inner Cladding Temperature Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('T_inner (°C)')
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '7_inner_cladding_temperature.png'))
+    plt.close()
+
