@@ -4,15 +4,19 @@ import CoolProp.CoolProp as CP
 import numpy as np
 import scipy
 from scipy.integrate import cumulative_trapezoid
+from scipy.special import j0
+
+from unit_conversions import psia_to_pa, lbm_per_hr_to_kg_per_s, fahrenheit_to_celsius, inches_to_meters, square_feet_to_square_meters
 
 
 # 1) VOLUMETRIC HEAT GENERATION RATE
-def volumetric_heat_generation(z, P_nom, n_rods, D_in_clad, H_active, F_q):
+def volumetric_heat_generation(z, r, P_nom, n_rods, D, H_active, R_eq, F_q):
     """
     Calcola il profilo di generazione di calore volumetrico lungo l'asse z.
     
     Parameters:
     - z: array delle posizioni assiali (m)
+    - r: array dei raggi (m)
     - P_nom: potenza nominale (W)
     - n_rods: numero di barre combustibili
     - D_in_clad: diametro interno della guaina (m)
@@ -23,7 +27,7 @@ def volumetric_heat_generation(z, P_nom, n_rods, D_in_clad, H_active, F_q):
     - qv_profile: profilo di generazione di calore volumetrico (W/m^3)
     """
     Tot_power = P_nom * 0.974  # W (potenza totale generata)
-    q_avg = Tot_power / (n_rods * np.pi * (D_in_clad/2)**2 * H_active)  # W/m^3
+    q_avg = Tot_power / (n_rods * np.pi * (D/2)**2 * H_active)  # W/m^3
     q_v_max = q_avg * F_q  # W/m^3 (tasso massimo)
     
     lambda_tr = 0.0029  # m (lunghezza di trasporto)
@@ -33,8 +37,8 @@ def volumetric_heat_generation(z, P_nom, n_rods, D_in_clad, H_active, F_q):
     delta = D_c / D_r * L_r  # transport length
     H_e = H_active + 1.42 * lambda_tr + 2 * delta  # m altezza estrapolata
     
-    qv_profile = q_v_max * np.cos(np.pi * z / H_e)  # W/m^3
-    
+    # qv_profile = q_v_max * np.cos(np.pi * z / H_e) * j0(np.pi * 2.4048*r / R_eq)  # W/m^3
+    qv_profile =  q_v_max * np.cos(np.pi * z / H_e)
     return qv_profile, H_e, q_avg, q_v_max
 
 
@@ -288,7 +292,7 @@ def void_fraction(p_sys, D_eq, zz, i_ONB, i_Det, G_avg, X_flow):
     
     return void_fraction_profile_ZF, void_fraction_profile_F, void_fraction_profile_M
     
-
+# 7) 
 
 
 
@@ -301,40 +305,44 @@ if __name__ == "__main__":
     
     # DATI DA TABELLA
     P_nom = 3400e6  # W
-    p_sys = 15.51e6  # Pa
+    p_sys = psia_to_pa(2250)  # Pa
     n_rods = 157 * 264
-    m_flow_tot = 1.4559e4  # kg/s
+    m_flow_tot = lbm_per_hr_to_kg_per_s(113.5e6)  # kg/s
     F_q = 2.6  # heat flux hot channel factor
-    m_flow_eff = 13456  # kg/s (portata effettiva considerando 5,9% di bypass flow)
-    A_flow_eff = 3.883  # m^2 (area di flusso effettiva)
+    Bypass_fraction = 0.059  # frazione di bypass flow (5,9%)
+    m_flow_eff = m_flow_tot * (1 - Bypass_fraction)  # kg/s (portata effettiva considerando 5,9% di bypass flow)
+    A_flow_eff = square_feet_to_square_meters(41.8)  # m^2 (area di flusso effettiva)
     T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water') #[K]
-    T_in = 279.44   # C (temperatura di ingresso)
+    T_in = fahrenheit_to_celsius(535)   # C (temperatura di ingresso)
 
     # DATI GEOMETRICI (square array)
-    Dout_clad = 9.5e-3  # m
-    H_active = 4.2672  # m
-    w = 12.6e-3  # m (pitch, passo tra le barre)
-    s_guaina = 0.57e-3  # m (spessore guaina)
-    D_in_clad = Dout_clad - 2 * s_guaina  # m (diametro interno)
-    D_pellet = 8.22e-3  # m (diametro pellet)
+    Dout_clad = inches_to_meters(0.374)  # m
+    H_active = inches_to_meters(168) # m
+    w = inches_to_meters(0.496)  # m (pitch, passo tra le barre)
+    s_clad = inches_to_meters(0.0225)  # m (spessore guaina)
+    D_in_clad = Dout_clad - 2 * s_clad  # m (diametro interno)
+    D_pellet = inches_to_meters(0.3225)  # m (diametro pellet)
     P_wet = np.pi * Dout_clad # m (perimetro bagnato)
     C = 0.042*w/Dout_clad - 0.024  # coefficiente per la correlazione di Dittus-Boelter
+    R_eq = inches_to_meters(119.7)
 
     # DISCRETIZZAZIONE DI Z (ASSIALE)
-    z = np.linspace(-H_active/2, H_active/2, 100)  # m (asse z, da -H/2 a H/2)
-    
+    dzz = 0.0254/2  # m (passo di discretizzazione, metà pollice)
+    z = np.arange(-H_active/2, H_active/2 + dzz, dzz)  # m (asse z, da -H/2 a H/2 con passo dzz)
+    r = np.arange(0, R_eq + dzz, dzz)  # m (raggio, da 0 a R_eq con passo dzz)
+
     # CALCOLO AREA DI FLUSSO PER CANALE
     A_c = w**2 - np.pi/4 * Dout_clad**2  # m^2
     D_eq = 4 * A_c / P_wet  # m (diametro equivalente)
 
     # CHIAMATA ALLE FUNZIONI
     # 1-2) average and maximum volumetric heat generation rate
-    qv_profile, H_e, q_avg, q_v_max = volumetric_heat_generation(z, P_nom, n_rods, D_in_clad, H_active, F_q)
+    qv_profile, H_e, q_avg, q_v_max = volumetric_heat_generation(z, r, P_nom, n_rods, D_pellet, H_active, R_eq, F_q)
     
     # calcolo il q_flux
     A_fuel = np.pi/4 * D_pellet**2
-    q_flux = qv_profile * A_fuel/P_wet  # W/m^2 (heat flux sulla guaina) !!!!!!!!
-
+    q_flux = qv_profile * A_fuel/P_wet  # W/m^2 (heat flux sulla guaina)
+    
     # 3) average mass velocity 
     G_avg = average_mass_velocity(m_flow_eff, A_flow_eff)
     
@@ -387,12 +395,12 @@ if __name__ == "__main__":
     # plt.legend()
     # plt.grid()
     
-    plt.figure(figsize=(10, 6))
-    plt.plot(x_eq_profile, z)
-    plt.title('Equilibrium Quality Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('x (kg/kg)')
-    plt.grid()
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(x_eq_profile, z)
+    # plt.title('Equilibrium Quality Profile along the z-axis')
+    # plt.ylabel('z (m)')
+    # plt.xlabel('x (kg/kg)')
+    # plt.grid()
 
     # plt.figure(figsize=(10, 6))
     # plt.plot(T_co, z, label='T_co (Actual)', color='black', linewidth=2)
@@ -404,25 +412,25 @@ if __name__ == "__main__":
     # plt.legend()
     # plt.grid()
     
-    plt.figure(figsize=(10, 6))
-    plt.plot(x_flow_R, z, label="Rouhani eps")
-    plt.plot(x_flow_B, z, label="Bowring eps=1.6", linestyle='--')
-    plt.title('Flow Quality Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('x (kg/kg)')
-    #plt.ylim(0.5, max(z))
-    plt.legend()
-    plt.grid()
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(x_flow_R, z, label="Rouhani eps")
+    # plt.plot(x_flow_B, z, label="Bowring eps=1.6", linestyle='--')
+    # plt.title('Flow Quality Profile along the z-axis')
+    # plt.ylabel('z (m)')
+    # plt.xlabel('x (kg/kg)')
+    # #plt.ylim(0.5, max(z))
+    # plt.legend()
+    # plt.grid()
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(alpha_ZF, z, label='Void Fraction (Zuber-Findlay)', color='blue')
-    plt.plot(alpha_F, z, label='Void Fraction (Fauske)', color='orange', linestyle='--')
-    plt.plot(alpha_M, z, label='Void Fraction (Moody)', color='green', linestyle='-.')
-    plt.title('Void Fraction Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('Void Fraction')
-    plt.ylim(-0.25, max(z))
-    plt.legend()
-    plt.grid()
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(alpha_ZF, z, label='Void Fraction (Zuber-Findlay)', color='blue')
+    # plt.plot(alpha_F, z, label='Void Fraction (Fauske)', color='orange', linestyle='--')
+    # plt.plot(alpha_M, z, label='Void Fraction (Moody)', color='green', linestyle='-.')
+    # plt.title('Void Fraction Profile along the z-axis')
+    # plt.ylabel('z (m)')
+    # plt.xlabel('Void Fraction')
+    # plt.ylim(-0.25, max(z))
+    # plt.legend()
+    # plt.grid()
 
     plt.show()   
