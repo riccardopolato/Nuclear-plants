@@ -5,7 +5,7 @@ import numpy as np
 import scipy
 from scipy.integrate import cumulative_trapezoid
 from scipy.special import j0
-
+import os
 from unit_conversions import psia_to_pa, lbm_per_hr_to_kg_per_s, fahrenheit_to_celsius, inches_to_meters, square_feet_to_square_meters
 
 
@@ -292,8 +292,25 @@ def void_fraction(p_sys, D_eq, zz, i_ONB, i_Det, G_avg, X_flow):
     
     return void_fraction_profile_ZF, void_fraction_profile_F, void_fraction_profile_M
     
-# 7) 
+# 7) T INNER CLADDING TEMPERATURE PROFILE
+def k_zircaloy(T):
+    # Esempio di correlazione inventata (sostituisci con quella del testo se c'è!)
+    # T in °C, restituisce W/mK
+    return 11.45 + 1.425e-2 * T
 
+def T_inner_cladding_profile(T_cool, q_flux, A_clad, D_ci, D_co):
+        T_inner = np.zeros_like(T_cool)
+
+        for i in range(len(T_cool)):
+            T_co_loc = T_cool[i]
+            q_vol_loc = q_flux[i]
+
+            rhs = q_vol_loc * A_clad / 2 / np.pi * np.log(D_co / D_ci)
+
+            A = 11.45
+            B = 1.425e-2
+
+        return T_inner
 
 
 
@@ -363,74 +380,102 @@ if __name__ == "__main__":
     T_det, z_det, first_detachment_idx= detachment(h_single_phase, q_flux, T_sat, T_profile, z)
 
     x_flow_R, x_flow_B = flow_quality_two_phase(h_single_phase, T_sat, T_profile, first_detachment_idx, H_fg, p_sys, q_flux, z, z_det, P_wet, W_hc)
-
+    
     # void fraction calcolata a partire dal titolo con formula di Rouhani
-    alpha_ZF, alpha_F, alpha_M = void_fraction(p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_R)
+    alpha_ZF_R, alpha_F_R, alpha_M_R = void_fraction(p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_R)
+    alpha_ZF_B, alpha_F_B, alpha_M_B = void_fraction(p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_B)
+
+    # 7) Cladding inner wall temperature
+    
+
+
+
+
+    
+    # Crea la cartella 'plots' se non esiste
+    plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
     # PLOT
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(qv_profile, z)
-    # plt.title('Volumetric Heat Generation Rate along the z-axis')
-    # plt.ylabel('z (m)')
-    # plt.xlabel('q_v (W/m^3)')
-    # plt.grid()
+    plt.figure(figsize=(10, 6))
+    plt.plot(qv_profile, z)
+    plt.title('Volumetric Heat Generation Rate along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('q_v (W/m^3)')
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '1_volumetric_heat_generation.png'))
+    plt.close()
     
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(h_profile, z)
-    # plt.title('Coolant Specific Enthalpy Profile along the z-axis')
-    # plt.ylabel('z (m)')
-    # plt.xlabel('h (J/kg)')
-    # plt.grid()
+    plt.figure(figsize=(10, 6))
+    plt.plot(h_profile, z)
+    plt.title('Coolant Specific Enthalpy Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('h (J/kg)')
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '2_coolant_specific_enthalpy.png'))
+    plt.close()
     
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(T_profile, z, label='T_coolant (°C)')
-    # if T_det is not None:
-    #     plt.plot(T_det, z_det, 'ro', label=f'Detachment Point (T={T_det:.1f} °C, z={z_det:.2f} m)')
-    # if T_NB is not None:
-    #     plt.plot(T_NB, z_NB, 'bo', label=f'ONB Point (T={T_NB:.1f} °C, z={z_NB:.2f} m)')
-    # if z_sat is not None:
-    #     plt.plot(T_sat - 273.15, z_sat, 'go', label=f'Saturated Point (T={T_sat:.1f} °C, z={z_sat:.2f} m)')
-    # plt.title('Coolant Temperature Profile along the z-axis')
-    # plt.ylabel('z (m)')
-    # plt.xlabel('T (°C)')
-    # plt.legend()
-    # plt.grid()
+    plt.figure(figsize=(10, 6))
+    plt.plot(T_profile, z, label='T_coolant (°C)')
+    if T_det is not None:
+        plt.plot(T_det, z_det, 'ro', label=f'Detachment Point (T={T_det:.1f} °C, z={z_det:.2f} m)')
+    if T_NB is not None:
+        plt.plot(T_NB, z_NB, 'bo', label=f'ONB Point (T={T_NB:.1f} °C, z={z_NB:.2f} m)')
+    if z_sat is not None:
+        plt.plot(T_sat - 273.15, z_sat, 'go', label=f'Saturated Point (T={T_sat:.1f} °C, z={z_sat:.2f} m)')
+    plt.title('Coolant Temperature Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('T (°C)')
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '3_coolant_temperature_profile.png'))
+    plt.close()
     
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(x_eq_profile, z)
-    # plt.title('Equilibrium Quality Profile along the z-axis')
-    # plt.ylabel('z (m)')
-    # plt.xlabel('x (kg/kg)')
-    # plt.grid()
+    plt.figure(figsize=(10, 6))
+    plt.plot(x_eq_profile, z)
+    plt.title('Equilibrium Quality Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('x (kg/kg)')
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '4_equilibrium_quality.png'))
+    plt.close()
 
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(T_co, z, label='T_co (Actual)', color='black', linewidth=2)
-    # plt.plot(T_co_JL, z, label='T_co_JL (Jens-Lottes)', linestyle='--')
-    # plt.plot(T_co_SP, z, label='T_co_SP (Single Phase)', linestyle='-.')
-    # plt.title('Outer Cladding Temperature Profile along the z-axis')
-    # plt.ylabel('z (m)')
-    # plt.xlabel('Temperature (°C)')
-    # plt.legend()
-    # plt.grid()
+    plt.figure(figsize=(10, 6))
+    plt.plot(T_co, z, label='T_co (Actual)', color='black', linewidth=2)
+    plt.plot(T_co_JL, z, label='T_co_JL (Jens-Lottes)', linestyle='--')
+    plt.plot(T_co_SP, z, label='T_co_SP (Single Phase)', linestyle='-.')
+    plt.title('Outer Cladding Temperature Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('Temperature (°C)')
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '5_outer_cladding_temperature.png'))
+    plt.close()
     
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(x_flow_R, z, label="Rouhani eps")
-    # plt.plot(x_flow_B, z, label="Bowring eps=1.6", linestyle='--')
-    # plt.title('Flow Quality Profile along the z-axis')
-    # plt.ylabel('z (m)')
-    # plt.xlabel('x (kg/kg)')
-    # #plt.ylim(0.5, max(z))
-    # plt.legend()
-    # plt.grid()
+    plt.figure(figsize=(10, 6))
+    plt.plot(x_flow_R, z, label="Rouhani eps")
+    plt.plot(x_flow_B, z, label="Bowring eps=1.6", linestyle='--')
+    plt.title('Flow Quality Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('x (kg/kg)')
+    #plt.ylim(0.5, max(z))
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '6_flow_quality.png'))
+    plt.close()
 
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(alpha_ZF, z, label='Void Fraction (Zuber-Findlay)', color='blue')
-    # plt.plot(alpha_F, z, label='Void Fraction (Fauske)', color='orange', linestyle='--')
-    # plt.plot(alpha_M, z, label='Void Fraction (Moody)', color='green', linestyle='-.')
-    # plt.title('Void Fraction Profile along the z-axis')
-    # plt.ylabel('z (m)')
-    # plt.xlabel('Void Fraction')
-    # plt.ylim(-0.25, max(z))
-    # plt.legend()
-    # plt.grid()
-
-    plt.show()   
+    plt.figure(figsize=(10, 6))
+    plt.plot(alpha_ZF_R, z, label='Void Fraction (Zuber-Findlay + Rouhani)', color='blue')
+    plt.plot(alpha_F_R, z, label='Void Fraction (Fauske + Rouhani)', color='blue', linestyle='--')
+    plt.plot(alpha_M_R, z, label='Void Fraction (Moody + Rouhani)', color='blue', linestyle='-.')
+    plt.plot(alpha_ZF_B, z, label='Void Fraction (Zuber-Findlay + Bowring)', color='green')
+    plt.plot(alpha_F_B, z, label='Void Fraction (Fauske + Bowring)', color='green', linestyle='--')
+    plt.plot(alpha_M_B, z, label='Void Fraction (Moody + Bowring)', color='green', linestyle='-.')
+    plt.title('Void Fraction Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('Void Fraction')
+    plt.ylim(-0.25, max(z))
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '7_void_fraction.png'))
+    plt.close()   

@@ -70,28 +70,3 @@ def square_feet_to_square_meters(area_sq_ft):
     """
     return area_sq_ft * 0.092903
 
-
-def bessel_j0(x):
-    """
-    Bessel function of the first kind of order 0.
-    
-    Parameters:
-    - x: float or array, argument of the Bessel function
-    
-    Returns:
-    - float or array, J0(x)
-    """
-    return j0(x)
-
-
-def bessel_j1(x):
-    """
-    Bessel function of the first kind of order 1.
-    
-    Parameters:
-    - x: float or array, argument of the Bessel function
-    
-    Returns:
-    - float or array, J1(x)
-    """
-    return j1(x)
