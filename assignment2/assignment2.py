@@ -326,7 +326,18 @@ def T_inner_cladding_profile(T_co, q_vol, A_f, D_ci, D_co):
 def T_pellet_surface_profile(T_inner_cladding, q_vol, A_fuel, D_fuel, h_g_T):
     A = q_vol * A_fuel /(np.pi * D_fuel * h_g_T)
     return T_inner_cladding + A
+
 # calculate the GAP CONDUCTANCE h_g_T
+def thermal_expansion(D_Ta, T_mean, T_amb, component):
+        def alpha(T): # T in °C, restituisce 1/°C
+            if component == 'fuel':
+                return 7.87e-6 + 3.9e-9*T # 1/°C 
+            elif component == 'cladding':
+                return 5.62e-6 + 3.162e-9*T # 1/°C 
+            else:
+                raise ValueError("Componente sconosciuto")
+        return D_Ta * (1 + alpha(T_mean) * (T_mean - T_amb))
+
 def gap_conductance():
     # total gap conduction is the sum of radiative, contact and gap components
     # gap component: 
@@ -339,15 +350,7 @@ def gap_conductance():
         det = 2.54e-5  # m 
         return k_gas / (det + delta)  # W/m^2K
     
-    def thermal_expansion(D_Ta, T_mean, T_amb, component):
-        def alpha(T): # T in °C, restituisce 1/°C
-            if component == 'fuel':
-                return 7.87e-6 + 3.9e-9*T # 1/°C 
-            elif component == 'cladding':
-                return 5.62e-6 + 3.162e-9*T # 1/°C 
-            else:
-                raise ValueError("Componente sconosciuto")
-        return D_Ta * (1 + alpha(T_mean) * (T_mean - T_amb))
+    
     
 
         
@@ -427,7 +430,10 @@ if __name__ == "__main__":
     T_ci = T_inner_cladding_profile(T_co, qv_profile, A_fuel, D_in_clad, D_out_clad)
 
     # 8) Pellet surface temperature
-
+    T_fuel_avg_guess = max(T_ci)
+    T_c_avg = np.mean(T_ci)
+    T_amb = 25  # °C (temperatura ambiente per il calcolo dell'espansione termica)
+    
 
 
 
