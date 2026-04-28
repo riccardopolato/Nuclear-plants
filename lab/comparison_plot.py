@@ -43,8 +43,8 @@ plt.xlabel('Experimental Void Fraction', fontsize=12)
 plt.ylabel('Calculated Void Fraction', fontsize=12)
 plt.title('Void Fraction Plot', fontsize=14)
 
-# Aggiungo la legenda fuori dal grafico
-plt.legend(bbox_to_anchor=(1.05, 0.5), loc='center left', frameon=False)
+# Aggiungo la legenda nell'angolo in alto a sinistra
+plt.legend(loc='upper left', frameon=False)
 
 # Aggiusto i margini e salvo/mostro l'immagine
 plt.tight_layout()
@@ -86,8 +86,8 @@ plt.xlabel('Experimental pressure drop (Pa)', fontsize=12)
 plt.ylabel('Calculated pressure drop (Pa)', fontsize=12)
 plt.title('Total Pressure Drop Plot', fontsize=14)
 
-# Aggiungo la legenda fuori dal grafico
-plt.legend(bbox_to_anchor=(1.05, 0.5), loc='center left', frameon=False)
+# Aggiungo la legenda nell'angolo in alto a sinistra
+plt.legend(loc='upper left', frameon=False)
 
 # Aggiusto i margini e salvo/mostro l'immagine
 plt.tight_layout()

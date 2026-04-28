@@ -336,9 +336,18 @@ def thermal_expansion(D_Ta, T_mean, T_amb, component):
                 return 5.62e-6 + 3.162e-9*T # 1/°C 
             else:
                 raise ValueError("Componente sconosciuto")
-        return D_Ta * (1 + alpha(T_mean) * (T_mean - T_amb))
+        return D_Ta*alpha(T_mean - T_amb)
 
-def gap_conductance():
+def elastic_deformation(r_ci, r_co, T_c, p_i, p_e):
+    gamma = r_co/r_ci
+    nu = 0.43
+    def young_modulus(T):
+        return 1.148e11 - 5.99e7 * T  # Pa (modulo di Young in funzione della temperatura)
+    E = young_modulus(T_c)
+    delta_r_ci = (r_ci / (E * (gamma**2 - 1))) * (p_i * ((1 - nu) + (1 + nu) * gamma**2) - 2 * gamma**2 * p_e)
+    return delta_r_ci
+
+def gap_conductance(delta0, D_pellet, D_in_clad , D_out_clad, T_amb, T_c_avg, p_i, p_e, T_fuel_surface):
     # total gap conduction is the sum of radiative, contact and gap components
     # gap component: 
     def k_gas(T):
@@ -347,9 +356,71 @@ def gap_conductance():
         return A * T**N  # W/mK
     
     def h_gap(k_gas, delta):
-        det = 2.54e-5  # m 
-        return k_gas / (det + delta)  # W/m^2K
+        den = 2.54e-5  # m 
+        return k_gas / (den + delta)  # W/m^2K
     
+
+    delta_f = thermal_expansion(D_pellet, T_fuel_surface, T_amb, 'fuel')
+    delta_cl =  thermal_expansion(D_in_clad, T_c_avg, T_amb, 'cladding')
+    # p_e è la p_sys, per ora p_i ipotizzata
+    delta_def = elastic_deformation(D_in_clad/2, D_out_clad/2, T_c_avg, p_i, p_e)
+
+    delta = delta0 - (delta_f + delta_cl + delta_def)
+
+    T_He_avg = T_c_avg + T_fuel_surface / 2  # stima della temperatura media del gas nel gap
+    return h_gap(k_gas(T_He_avg), delta), delta 
+
+def h_rad(T_f_S, T_ci):
+    """
+    Calcola il coefficiente di scambio termico radiativo.
+    Le temperature devono essere in Kelvin.
+    """
+    sigma = 5.67e-8  # W/(m^2 K^4), costante di Stefan-Boltzmann
+    # Se le temperature sono uguali, il limite è 4 * sigma * T^3
+    if np.all(T_f_S == T_ci):
+        return 4 * sigma * T_f_S**3
+    return sigma * (T_f_S**4 - T_ci**4) / (T_f_S - T_ci)
+
+def calculate_T_pellet_surface_iterative(T_ci_profile, q_vol_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, delta0):
+    # Inizializzo la temperatura del pellet (ipotesi in Celsius)
+    T_f_S = np.max(T_ci_profile)
+    p_i = 3e6  # Pa (Pressione interna ipotizzata)
+    
+    tol = 1e-3
+    max_iter = 100
+    
+    # Inizializza array per risultati
+    h_tot = 0
+    delta_out = 0
+    T_c_avg = np.mean(T_ci_profile)
+    
+    for _ in range(max_iter):
+        T_f_S_old = T_f_S.copy()
+        
+        # 1. Calcolo gap conductance con T_f_S_old (vettorizzato o punto per punto a seconda dell'implementazione delle sub-funzioni)
+        # Qui passiamo l'intero profilo
+        h_gap_val, delta = gap_conductance(delta0, D_pellet, D_in_clad, D_out_clad, T_amb, T_c_avg, p_i, p_sys, T_f_S_old)
+        
+        # 2. Calcolo radiative heat transfer coeff (temperature in Kelvin)
+        h_rad_val = h_rad(T_f_S_old + 273.15, T_c_avg + 273.15)
+        
+        # 3. Gap conductance totale
+        h_tot = h_gap_val + h_rad_val
+        
+        # 4. Calcolo nuova temperatura della superficie del pellet
+        T_f_S_new = T_pellet_surface_profile(T_ci_profile, q_vol_profile, A_fuel, D_pellet, h_tot)
+        
+        # 5. Controllo convergenza
+        if np.max(np.abs(T_f_S_new - T_f_S_old)) < tol:
+            T_f_S = T_f_S_new
+            delta_out = delta
+            break
+            
+        T_f_S = T_f_S_new
+        delta_out = delta
+        
+    return T_f_S, h_tot, delta_out
+
     
     
 
@@ -430,10 +501,10 @@ if __name__ == "__main__":
     T_ci = T_inner_cladding_profile(T_co, qv_profile, A_fuel, D_in_clad, D_out_clad)
 
     # 8) Pellet surface temperature
-    T_fuel_avg_guess = max(T_ci)
-    T_c_avg = np.mean(T_ci)
+
     T_amb = 25  # °C (temperatura ambiente per il calcolo dell'espansione termica)
-    
+    T_f_S, h_tot, delta_out = calculate_T_pellet_surface_iterative(T_ci, qv_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, s_clad)
+    print(delta_out)
 
 
 
@@ -541,5 +612,15 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid()
     plt.savefig(os.path.join(plot_dir, '7_inner_cladding_temperature.png'))
+    plt.close()
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(T_f_S, z, label='T_surface_fuel (°C)', color='red')
+    plt.title('Pellet Surface Temperature Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('T_surface_fuel (°C)')
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '8_fuel_surface_temperature.png'))
     plt.close()
 
