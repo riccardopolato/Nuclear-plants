@@ -336,14 +336,14 @@ def thermal_expansion(D_Ta, T_mean, T_amb, component):
                 return 5.62e-6 + 3.162e-9*T # 1/°C 
             else:
                 raise ValueError("Componente sconosciuto")
-        return D_Ta*alpha(T_mean - T_amb)
+        return D_Ta*alpha(T_mean)*(T_mean - T_amb)
 
 def elastic_deformation(r_ci, r_co, T_c, p_i, p_e):
     gamma = r_co/r_ci
     nu = 0.43
     def young_modulus(T):
         return 1.148e11 - 5.99e7 * T  # Pa (modulo di Young in funzione della temperatura)
-    E = young_modulus(T_c)
+    E = young_modulus(T_c + 273.15)  
     delta_r_ci = (r_ci / (E * (gamma**2 - 1))) * (p_i * ((1 - nu) + (1 + nu) * gamma**2) - 2 * gamma**2 * p_e)
     return delta_r_ci
 
@@ -359,15 +359,15 @@ def gap_conductance(delta0, D_pellet, D_in_clad , D_out_clad, T_amb, T_c_avg, p_
         den = 2.54e-5  # m 
         return k_gas / (den + delta)  # W/m^2K
     
+    T_fuel_avg = np.mean(T_fuel_surface)  # stima della temperatura media del pellet
+    delta_f = thermal_expansion(D_pellet, T_fuel_avg, T_amb, 'fuel') # espansione termica diametro del pellet
+    delta_cl =  thermal_expansion(D_in_clad, T_c_avg, T_amb, 'cladding') # espansione termica diametro interno della guaina
+    # p_e è la p_sys, per ora p_i ipotizzata. Dato che p_e è molto più grande di p_i, la deformazione elastica è negativa (contrazione) e quindi riduce il gap, mentre l'espansione termica lo aumenta.
+    delta_def = elastic_deformation(D_in_clad/2, D_out_clad/2, T_c_avg, p_i, p_e) # deformazione elastica raggio della guaina
+    # il fuel si espande e occupa gap, il cladding si espande e aumenta il gap, la deformazione riducie il gap
+    delta = delta0 - delta_f/2 + delta_cl/2 - np.abs(delta_def)
 
-    delta_f = thermal_expansion(D_pellet, T_fuel_surface, T_amb, 'fuel')
-    delta_cl =  thermal_expansion(D_in_clad, T_c_avg, T_amb, 'cladding')
-    # p_e è la p_sys, per ora p_i ipotizzata
-    delta_def = elastic_deformation(D_in_clad/2, D_out_clad/2, T_c_avg, p_i, p_e)
-
-    delta = delta0 - (delta_f + delta_cl + delta_def)
-
-    T_He_avg = T_c_avg + T_fuel_surface / 2  # stima della temperatura media del gas nel gap
+    T_He_avg = (T_c_avg + T_fuel_surface) / 2  + 273.15  # [K] stima della temperatura media del gas nel gap
     return h_gap(k_gas(T_He_avg), delta), delta 
 
 def h_rad(T_f_S, T_ci):
@@ -383,7 +383,7 @@ def h_rad(T_f_S, T_ci):
 
 def calculate_T_pellet_surface_iterative(T_ci_profile, q_vol_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, delta0):
     # Inizializzo la temperatura del pellet (ipotesi in Celsius)
-    T_f_S = np.max(T_ci_profile)
+    T_f_S = T_ci_profile.copy() + 50.0
     p_i = 3e6  # Pa (Pressione interna ipotizzata)
     
     tol = 1e-3
@@ -501,7 +501,6 @@ if __name__ == "__main__":
     T_ci = T_inner_cladding_profile(T_co, qv_profile, A_fuel, D_in_clad, D_out_clad)
 
     # 8) Pellet surface temperature
-
     T_amb = 25  # °C (temperatura ambiente per il calcolo dell'espansione termica)
     T_f_S, h_tot, delta_out = calculate_T_pellet_surface_iterative(T_ci, qv_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, s_clad)
     print(delta_out)
