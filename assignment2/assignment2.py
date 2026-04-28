@@ -359,8 +359,7 @@ def gap_conductance(delta0, D_pellet, D_in_clad , D_out_clad, T_amb, T_c_avg, p_
         den = 2.54e-5  # m 
         return k_gas / (den + delta)  # W/m^2K
     
-    T_fuel_avg = np.mean(T_fuel_surface)  # stima della temperatura media del pellet
-    delta_f = thermal_expansion(D_pellet, T_fuel_avg, T_amb, 'fuel') # espansione termica diametro del pellet
+    delta_f = thermal_expansion(D_pellet, T_fuel_surface, T_amb, 'fuel') # espansione termica diametro del pellet
     delta_cl =  thermal_expansion(D_in_clad, T_c_avg, T_amb, 'cladding') # espansione termica diametro interno della guaina
     # p_e è la p_sys, per ora p_i ipotizzata. Dato che p_e è molto più grande di p_i, la deformazione elastica è negativa (contrazione) e quindi riduce il gap, mentre l'espansione termica lo aumenta.
     delta_def = elastic_deformation(D_in_clad/2, D_out_clad/2, T_c_avg, p_i, p_e) # deformazione elastica raggio della guaina
@@ -392,17 +391,17 @@ def calculate_T_pellet_surface_iterative(T_ci_profile, q_vol_profile, A_fuel, D_
     # Inizializza array per risultati
     h_tot = 0
     delta_out = 0
-    T_c_avg = np.mean(T_ci_profile)
+
     
     for _ in range(max_iter):
         T_f_S_old = T_f_S.copy()
         
         # 1. Calcolo gap conductance con T_f_S_old (vettorizzato o punto per punto a seconda dell'implementazione delle sub-funzioni)
         # Qui passiamo l'intero profilo
-        h_gap_val, delta = gap_conductance(delta0, D_pellet, D_in_clad, D_out_clad, T_amb, T_c_avg, p_i, p_sys, T_f_S_old)
+        h_gap_val, delta = gap_conductance(delta0, D_pellet, D_in_clad, D_out_clad, T_amb, T_ci_profile, p_i, p_sys, T_f_S_old)
         
         # 2. Calcolo radiative heat transfer coeff (temperature in Kelvin)
-        h_rad_val = h_rad(T_f_S_old + 273.15, T_c_avg + 273.15)
+        h_rad_val = h_rad(T_f_S_old + 273.15, T_ci_profile + 273.15)
         
         # 3. Gap conductance totale
         h_tot = h_gap_val + h_rad_val
