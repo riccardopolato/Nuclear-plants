@@ -7,6 +7,7 @@ from scipy.integrate import cumulative_trapezoid
 from scipy.special import j0
 import os
 from unit_conversions import psia_to_pa, lbm_per_hr_to_kg_per_s, fahrenheit_to_celsius, inches_to_meters, square_feet_to_square_meters
+from scipy.optimize import fsolve
 
 
 # 1) VOLUMETRIC HEAT GENERATION RATE
@@ -323,22 +324,27 @@ def T_inner_cladding_profile(T_co, q_vol, A_f, D_ci, D_co):
         return T_inner
 
 # 8) T PELLET SURFACE TEMPERATURE PROFILE
-def T_pellet_surface_profile(T_inner_cladding, q_vol, A_fuel, D_fuel, h_g_T):
-    A = q_vol * A_fuel /(np.pi * D_fuel * h_g_T)
-    return T_inner_cladding + A
+def pellet_thermal_conductivity(T):
+    """ Calcola la conducibilità termica del pellet di UO2. T in °C, restituisce W/m*K """
+    
+    k_UO2 = 1/(11.8+0.0238*T) + 8.775e-13*T**3 
+    return k_UO2 * 100  # W/m*K (conversione da W/cm*K a W/m*K)
+
 
 # calculate the GAP CONDUCTANCE h_g_T
 def thermal_expansion(D_Ta, T_mean, T_amb, component):
-        def alpha(T): # T in °C, restituisce 1/°C
-            if component == 'fuel':
-                return 7.87e-6 + 3.9e-9*T # 1/°C 
-            elif component == 'cladding':
-                return 5.62e-6 + 3.162e-9*T # 1/°C 
-            else:
-                raise ValueError("Componente sconosciuto")
-        return D_Ta*alpha(T_mean)*(T_mean - T_amb)
+    """ Calcola l'espansione termica del diametro. """
+    def alpha(T): # T in °C, restituisce 1/°C
+        if component == 'fuel':
+            return 7.87e-6 + 3.9e-9*T # 1/°C 
+        elif component == 'cladding':
+            return 5.62e-6 + 3.162e-9*T # 1/°C 
+        else:
+            raise ValueError("Componente sconosciuto")
+    return D_Ta*alpha(T_mean)*(T_mean - T_amb)
 
 def elastic_deformation(r_ci, r_co, T_c, p_i, p_e):
+    """ Calcola la deformazione elastica del raggio. """
     gamma = r_co/r_ci
     nu = 0.43
     def young_modulus(T):
@@ -347,80 +353,126 @@ def elastic_deformation(r_ci, r_co, T_c, p_i, p_e):
     delta_r_ci = (r_ci / (E * (gamma**2 - 1))) * (p_i * ((1 - nu) + (1 + nu) * gamma**2) - 2 * gamma**2 * p_e)
     return delta_r_ci
 
-def gap_conductance(delta0, D_pellet, D_in_clad , D_out_clad, T_amb, T_c_avg, p_i, p_e, T_fuel_surface):
-    # total gap conduction is the sum of radiative, contact and gap components
-    # gap component: 
-    def k_gas(T):
-        A = 0.1763e-2
-        N = 0.77163
-        return A * T**N  # W/mK
+def calculate_gap_conductance(delta0, D_pellet, D_in_clad, D_out_clad, T_amb, T_c_avg, p_i, p_sys, T_fuel_avg, T_f_S, T_ci):
+    """ Calcola la gap conductance iterativamente tenendo conto di espansione e radiazioni. """
+    # 1. Espansione e deformazione (variano lo spessore del gap)
+    delta_f = thermal_expansion(D_pellet, T_fuel_avg, T_amb, 'fuel') 
+    delta_cl = thermal_expansion(D_in_clad, T_c_avg, T_amb, 'cladding')
+    delta_def = elastic_deformation(D_in_clad/2, D_out_clad/2, T_c_avg, p_i, p_sys)
     
-    def h_gap(k_gas, delta):
-        den = 2.54e-5  # m 
-        return k_gas / (den + delta)  # W/m^2K
+    # Gap finale: delta_f riduce il gap, delta_cl lo allarga, delta_def (compressione) lo riduce o allarga
+    delta = delta0 - delta_f/2 + delta_cl/2 + delta_def
     
-    delta_f = thermal_expansion(D_pellet, T_fuel_surface, T_amb, 'fuel') # espansione termica diametro del pellet
-    delta_cl =  thermal_expansion(D_in_clad, T_c_avg, T_amb, 'cladding') # espansione termica diametro interno della guaina
-    # p_e è la p_sys, per ora p_i ipotizzata. Dato che p_e è molto più grande di p_i, la deformazione elastica è negativa (contrazione) e quindi riduce il gap, mentre l'espansione termica lo aumenta.
-    delta_def = elastic_deformation(D_in_clad/2, D_out_clad/2, T_c_avg, p_i, p_e) # deformazione elastica raggio della guaina
-    # il fuel si espande e occupa gap, il cladding si espande e aumenta il gap, la deformazione riducie il gap
-    delta = delta0 - delta_f/2 + delta_cl/2 - np.abs(delta_def)
+    # Controllo contatto
+    if np.any(delta <= 0):
+        print("Attenzione: Contatto tra pellet e cladding rilevato!")
+        # Qui potresti aggiungere un termine di 'contact conductance' (h_contact) se necessario
+        
 
-    T_He_avg = (T_c_avg + T_fuel_surface) / 2  + 273.15  # [K] stima della temperatura media del gas nel gap
-    return h_gap(k_gas(T_He_avg), delta), delta 
+    # 2. Conducibilità del gas (He) in funzione della media tra superficie pellet ed interno guaina
+    T_gas_avg_K = (T_f_S + T_ci) / 2 + 273.15
+    k_gas = 0.1763e-2 * T_gas_avg_K**0.77163  # W/mK
+    
+    # Coefficiente conduttivo del gas con jump distance
+    h_gap_gas = k_gas / (delta + 2.54e-5)
+    
+    # 3. Coefficiente radiativo
+    sigma = 5.67e-8
+    T_f_S_K = T_f_S + 273.15
+    T_ci_K = T_ci + 273.15
+    
+    # Sfrutto l'approssimazione o la formula completa per evitare 0/0
+    h_rad_val = sigma * (T_f_S_K**2 + T_ci_K**2) * (T_f_S_K + T_ci_K)
 
-def h_rad(T_f_S, T_ci):
-    """
-    Calcola il coefficiente di scambio termico radiativo.
-    Le temperature devono essere in Kelvin.
-    """
-    sigma = 5.67e-8  # W/(m^2 K^4), costante di Stefan-Boltzmann
-    # Se le temperature sono uguali, il limite è 4 * sigma * T^3
-    if np.all(T_f_S == T_ci):
-        return 4 * sigma * T_f_S**3
-    return sigma * (T_f_S**4 - T_ci**4) / (T_f_S - T_ci)
+    return h_gap_gas + h_rad_val, delta
 
-def calculate_T_pellet_surface_iterative(T_ci_profile, q_vol_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, delta0):
-    # Inizializzo la temperatura del pellet (ipotesi in Celsius)
-    T_f_S = T_ci_profile.copy() + 50.0
-    p_i = 3e6  # Pa (Pressione interna ipotizzata)
+
+def calculate_T_pellet_surface_iterative(T_ci, T_co, q_vol_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, delta0):
+    # Inizializzazione array (si assume T_ci sia un numpy array derivato dai punti lungo z)
+    T_f_S = T_ci.copy() + 100.0  # Ipotesi di partenza migliorata
+    T_fuel_avg = T_f_S + 200.0   # Ipotesi di partenza per T_avg del pellet
+    T_c_avg = (T_ci + T_co) / 2
+    
+    p_i = 3e6  # Pa (Pressione interna ipotizzata o fornita)
     
     tol = 1e-3
-    max_iter = 100
+    max_iter = 1000
     
-    # Inizializza array per risultati
-    h_tot = 0
-    delta_out = 0
-
-    
-    for _ in range(max_iter):
+    for iteration in range(max_iter):
         T_f_S_old = T_f_S.copy()
         
-        # 1. Calcolo gap conductance con T_f_S_old (vettorizzato o punto per punto a seconda dell'implementazione delle sub-funzioni)
-        # Qui passiamo l'intero profilo
-        h_gap_val, delta = gap_conductance(delta0, D_pellet, D_in_clad, D_out_clad, T_amb, T_ci_profile, p_i, p_sys, T_f_S_old)
+        # 1. Calcolo/Aggiornamento delle proprietà del pellet basate sulle temp. del passo precedente
+        k_pellet = pellet_thermal_conductivity(T_fuel_avg)
+        T_center = T_f_S_old + (q_vol_profile * A_fuel) / (4 * np.pi * k_pellet)
+        T_fuel_avg = T_f_S_old + (q_vol_profile * A_fuel) / (8 * np.pi * k_pellet) # Stima T media teorica
         
-        # 2. Calcolo radiative heat transfer coeff (temperature in Kelvin)
-        h_rad_val = h_rad(T_f_S_old + 273.15, T_ci_profile + 273.15)
+        # 2. Ricalcolo Gap Conductance e Gap effettivo passano T pareti per il gas
+        h_tot, delta = calculate_gap_conductance(
+            delta0, D_pellet, D_in_clad, D_out_clad, 
+            T_amb, T_c_avg, p_i, p_sys, T_fuel_avg, T_f_S_old, T_ci
+        )
         
-        # 3. Gap conductance totale
-        h_tot = h_gap_val + h_rad_val
+        # 3. Nuova temperatura superficiale del pellet imposta dal flusso
+        # q'' = q_vol * V_f / A_superficiale = q_vol * A_fuel / (pi * D_pellet)
+        heat_flux_pellet = (q_vol_profile * A_fuel) / (np.pi * D_pellet)
+        T_f_S_new = T_ci + heat_flux_pellet / h_tot
         
-        # 4. Calcolo nuova temperatura della superficie del pellet
-        T_f_S_new = T_pellet_surface_profile(T_ci_profile, q_vol_profile, A_fuel, D_pellet, h_tot)
-        
-        # 5. Controllo convergenza
-        if np.max(np.abs(T_f_S_new - T_f_S_old)) < tol:
+        # 4. Verifica convergenza
+        error = np.linalg.norm(T_f_S_new - T_f_S_old) / np.linalg.norm(T_f_S_old)
+        if error < tol:
+            print(f"Convergenza raggiunta dopo {iteration} iterazioni.")
             T_f_S = T_f_S_new
-            delta_out = delta
             break
             
+        # Rilassamento forte (5% nuovo, 95% vecchio) per eliminare l'oscillazione elastica del gap
         T_f_S = T_f_S_new
-        delta_out = delta
+    else:
+        print("ATTENZIONE: max_iter raggiunto, la temperatura della superficie del pellet non è del tutto a convergenza!")
+
+    if np.any(delta <= 0):
+        print("ATTENZIONE: Contatto pellet-cladding rilevato a convergenza!")
         
-    return T_f_S, h_tot, delta_out
+    return T_f_S, h_tot, delta, T_center, iteration
 
     
+
+# 9) FUEL CENTER LINE TEMPERATURE
+def calculate_fuel_centerline_temperature(T_f_S_profile, q_vol_profile, A_fuel):
+    T_centerline = np.zeros_like(T_f_S_profile)
+    
+    # Fattore di depressione del flusso (di solito 1 se non specificato altrimenti)
+    f_robertson = 1.0 
+    
+    for i in range(len(T_f_S_profile)):
+        T_surface_loc = T_f_S_profile[i]
+        q_vol_loc = q_vol_profile[i]
+        
+        # Potenza lineare q' = q_vol * A_fuel
+        q_prime = q_vol_loc * A_fuel
+        
+        # Il lato destro dell'equazione (RHS) = q' * f / (4 * pi)
+        RHS = (q_prime * f_robertson) / (4 * np.pi)
+        
+        # Definiamo l'integrale analitico della conducibilità del pellet (Slide 47)
+        # k(T) = 100 * [ 1/(11.8+0.0238*T) + 8.775e-13*T**3 ]  (il 100 converte in W/mK)
+        # L'integrale indefinito K(T) = int k(T) dT :
+        def integral_k(T):
+            term1 = (100 / 0.0238) * np.log(11.8 + 0.0238 * T)
+            term2 = 100 * (8.775e-13 / 4) * (T**4)
+            return term1 + term2
+        
+        # L'equazione da azzerare: Integrale(T_center) - Integrale(T_surface) - RHS = 0
+        def objective_function(T_CL_guess):
+            return integral_k(T_CL_guess) - integral_k(T_surface_loc) - RHS
+            
+        # Initial guess per fsolve (es. superficie + 500 gradi)
+        initial_guess = T_surface_loc + 500.0
+        
+        # Risolvo per il singolo nodo
+        T_CL_sol = fsolve(objective_function, initial_guess)[0]
+        T_centerline[i] = T_CL_sol
+        
+    return T_centerline
     
 
         
@@ -501,13 +553,16 @@ if __name__ == "__main__":
 
     # 8) Pellet surface temperature
     T_amb = 25  # °C (temperatura ambiente per il calcolo dell'espansione termica)
-    T_f_S, h_tot, delta_out = calculate_T_pellet_surface_iterative(T_ci, qv_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, s_clad)
-    print(delta_out)
+    delta0 = 0.5*(D_in_clad - D_pellet)  # m (gap iniziale)
+    T_f_S, h_tot, delta_out, T_center, iteration = calculate_T_pellet_surface_iterative(T_ci, T_co, qv_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, delta0)
+    print("Variazioni del gap:", delta_out)
+    print("Coefficiente di scambio termico totale:", h_tot)
+    print("Numero di iterazioni:", iteration)
 
 
-
-    
-    
+    # 9) Fuel center line temperature
+    T_centerline = calculate_fuel_centerline_temperature(T_f_S, qv_profile, A_fuel)
+        
 
 
 
@@ -620,5 +675,42 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid()
     plt.savefig(os.path.join(plot_dir, '8_fuel_surface_temperature.png'))
+    plt.close()
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(delta_out, z, label='Gap Thickness (m)', color='red')
+    
+    # Trova e plotta il punto di minimo del gap
+    min_idx = np.argmin(delta_out)
+    min_delta = delta_out[min_idx]
+    z_min_delta = z[min_idx]
+    plt.plot(min_delta, z_min_delta, 'bo', label=f'Min gap: {min_delta:.2e} m (z = {z_min_delta:.2f} m)')
+    
+    plt.title('Gap Thickness Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('Gap Thickness (m)')
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '8_gap_thickness.png'))
+    plt.close()
+
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(T_center, z, label='T_center_fuel (°C)', color='red')
+    # plt.title('Fuel Center Line Temperature Profile along the z-axis')
+    # plt.ylabel('z (m)')
+    # plt.xlabel('T_center_fuel (°C)')
+    # plt.legend()
+    # plt.grid()
+    # plt.savefig(os.path.join(plot_dir, '9_fuel_center_temperature.png'))
+    # plt.close()
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(T_centerline, z, label='T_centerline_fuel (°C)', color='red')
+    plt.title('Fuel Center Line Temperature Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('T_centerline_fuel (°C)')
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '9_fuel_centerline_temperature.png'))
     plt.close()
 
