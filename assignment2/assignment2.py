@@ -330,7 +330,6 @@ def pellet_thermal_conductivity(T):
     k_UO2 = 1/(11.8+0.0238*T) + 8.775e-13*T**3 
     return k_UO2 * 100  # W/m*K (conversione da W/cm*K a W/m*K)
 
-
 # calculate the GAP CONDUCTANCE h_g_T
 def thermal_expansion(D_Ta, T_mean, T_amb, component):
     """ Calcola l'espansione termica del diametro. """
@@ -474,7 +473,8 @@ def calculate_fuel_centerline_temperature(T_f_S_profile, q_vol_profile, A_fuel):
         
     return T_centerline
     
-
+# def T_centerline_lacost():
+#     return 
         
 
 # ============================================================================
