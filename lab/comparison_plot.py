@@ -25,6 +25,7 @@ plt.scatter(df['alpha_exp'], df['alpha_hom'], marker='s', color='black', label='
 plt.scatter(df['alpha_exp'], df['alpha_zivi'], marker='o', color='darkorange', label='Zivi', s=60, zorder=3)
 plt.scatter(df['alpha_exp'], df['alpha_chisholm'], marker='^', color='silver', label='Chisholm', s=60, zorder=3)
 plt.scatter(df['alpha_exp'], df['alpha_drift_flux'], marker='D', edgecolor='royalblue', facecolor='none', linewidth=1.5, label='Drift Flux', s=60, zorder=3)
+plt.scatter(df['alpha_exp'], df['alpha_cise'], marker='v', color='forestgreen', label='CISE', s=60, zorder=3)
 
 # Creo i valori per le linee di riferimento (diagonale e +/- 20%)
 x_vals = np.linspace(0, 1, 100)
@@ -335,4 +336,3 @@ for _, row in td_data.iterrows():
     )
 
 plt.savefig(FIGURES_DIR / 'td_annular_slugchurn_with_data.png', dpi=300, bbox_inches='tight')
-plt.show()
