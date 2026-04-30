@@ -1,7 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
 
-file_csv = "lab/Diagram Plotter/Hewitt-Roberts.csv"
+file_csv = Path(__file__).resolve().parent / "Hewitt-Roberts.csv"
 
 df = pd.read_csv(file_csv, header=None, names=["x", "y"])
 df["x"] = pd.to_numeric(df["x"], errors="coerce")

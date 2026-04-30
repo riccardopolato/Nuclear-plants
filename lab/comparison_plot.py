@@ -11,7 +11,8 @@ FIGURES_DIR.mkdir(exist_ok=True)
 
 # 1. Caricamento dei dati
 # Nota: uso sep=';' perché Excel spesso esporta i CSV in italiano usando il punto e virgola
-df = pd.read_csv('lab/risultati_analisi.csv', sep=';')
+file_path = Path(__file__).resolve().parent / 'risultati_analisi.csv'
+df = pd.read_csv(file_path, sep=';')
 
 # Imposto una dimensione del font leggermente più grande per la relazione
 plt.rcParams.update({'font.size': 12})
@@ -98,10 +99,11 @@ plt.savefig(FIGURES_DIR / 'pressure_drop_all_models_plot.png', dpi=300, bbox_inc
 # %% Plot con Diagram plotter
 # Hewitt-Roberts 
 # Eseguo lo script originale
-runpy.run_path('lab/Diagram plotter/Hewitt_Roberts.py')
+hewitt_path = Path(__file__).resolve().parent / 'Diagram plotter' / 'Hewitt_Roberts.py'
+runpy.run_path(str(hewitt_path))
 
 # Estraggo i dati
-df_data = pd.read_csv('lab/risultati_analisi.csv', sep=';')
+df_data = pd.read_csv(file_path, sep=';')
 
 # Uso le densità calcolate per ogni shot (rho_l e rho_g) dal CSV risultati
 df_data['x_hewitt'] = df_data['rho_l'] * (df_data['j_l'] ** 2)
