@@ -336,3 +336,4 @@ for _, row in td_data.iterrows():
     )
 
 plt.savefig(FIGURES_DIR / 'td_annular_slugchurn_with_data.png', dpi=300, bbox_inches='tight')
+        

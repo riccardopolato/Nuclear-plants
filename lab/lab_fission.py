@@ -235,7 +235,6 @@ def calculate_homogeneous_friction_drop(x, G, D, h, rho_h, mu_l, mu_g):
     f_hom = get_friction_factor(Re_h)
     return f_hom * (h / D) * G**2 / (2 * rho_h) 
 
-
 def calculate_friedel_friction_drop(x, G, D, h, rho_l, rho_g, rho_h, mu_l, mu_g, sigma):
     """
     Calcola la caduta di pressione per attrito usando il modello di Friedel.
