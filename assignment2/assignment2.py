@@ -714,3 +714,18 @@ if __name__ == "__main__":
     plt.savefig(os.path.join(plot_dir, '9_fuel_centerline_temperature.png'))
     plt.close()
 
+    # Nuova figura con tutte le temperature
+    plt.figure(figsize=(10, 8))
+    plt.plot(T_profile, z, label='Coolant (T_profile)', color='blue')
+    plt.plot(T_co, z, label='Cladding Outside (T_co)', color='black')
+    plt.plot(T_ci, z, label='Cladding Inside (T_ci)', color='green')
+    plt.plot(T_f_S, z, label='Fuel Surface (T_f_S)', color='orange')
+    plt.plot(T_centerline, z, label='Fuel Centerline', color='red')
+    plt.title('All Temperatures Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('Temperature (°C)')
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '10_all_temperatures.png'))
+    plt.close()
+
