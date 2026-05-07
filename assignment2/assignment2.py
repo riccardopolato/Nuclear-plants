@@ -433,7 +433,6 @@ def calculate_T_pellet_surface_iterative(T_ci, T_co, q_vol_profile, A_fuel, D_pe
         
     return T_f_S, h_tot, delta, T_center, iteration
 
-    
 
 # 9) FUEL CENTER LINE TEMPERATURE
 def calculate_fuel_centerline_temperature(T_f_S_profile, q_vol_profile, A_fuel):
@@ -473,8 +472,92 @@ def calculate_fuel_centerline_temperature(T_f_S_profile, q_vol_profile, A_fuel):
         
     return T_centerline
     
-# def T_centerline_lacost():
-#     return 
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def solve_pellet_radial_temperature(z,q_vol_profile,T_surface,R_pellet,pellet_thermal_conductivity,Nr=100,tol=1e-6,max_iter=500,alpha=0.5):
+    """
+    Risolve la conduzione radiale nel pellet per ogni quota z.
+
+    Equazione:
+        1/r d/dr ( r k(T) dT/dr ) + q'''(z) = 0
+
+    BC:
+        dT/dr = 0          a r = 0
+        T = T_surface(z)   a r = R_pellet
+    """
+
+    r = np.linspace(0, R_pellet, Nr)
+    dr = r[1] - r[0]
+
+    Nz = len(z)
+
+    T = np.zeros((Nr, Nz))
+    T_center = np.zeros(Nz)
+
+    for iz in range(Nz):
+
+        q = q_vol_profile[iz]
+        T_s = T_surface[iz]
+
+        # Guess iniziale
+        T_old = np.ones(Nr) * T_s
+
+        for iteration in range(max_iter):
+
+            k = pellet_thermal_conductivity(T_old)
+
+            A = np.zeros((Nr, Nr))
+            b = np.zeros(Nr)
+
+            # -------------------------
+            # BC centro: dT/dr = 0
+            # T[0] = T[1]
+            # -------------------------
+            A[0, 0] = 1.0
+            A[0, 1] = -1.0
+            b[0] = 0.0
+
+            # -------------------------
+            # Nodi interni
+            # -------------------------
+            for i in range(1, Nr - 1):
+
+                rp = r[i] + dr / 2
+                rm = r[i] - dr / 2
+
+                kp = 0.5 * (k[i] + k[i + 1])
+                km = 0.5 * (k[i] + k[i - 1])
+
+                A[i, i - 1] = rm * km / dr**2
+                A[i, i] = -(rp * kp + rm * km) / dr**2
+                A[i, i + 1] = rp * kp / dr**2
+
+                b[i] = -q * r[i]
+
+            # -------------------------
+            # BC superficie: T(R) = T_s
+            # -------------------------
+            A[-1, -1] = 1.0
+            b[-1] = T_s
+
+            T_calc = np.linalg.solve(A, b)
+
+            # Rilassamento
+            T_new = alpha * T_calc + (1 - alpha) * T_old
+
+            error = np.max(np.abs(T_new - T_old))
+
+            if error < tol:
+                break
+
+            T_old = T_new.copy()
+
+        T[:, iz] = T_new
+        T_center[iz] = T_new[0]
+
+    return r, T, T_center
         
 
 # ============================================================================
@@ -555,7 +638,13 @@ if __name__ == "__main__":
     T_amb = 25  # °C (temperatura ambiente per il calcolo dell'espansione termica)
     delta0 = 0.5*(D_in_clad - D_pellet)  # m (gap iniziale)
     T_f_S, h_tot, delta_out, T_center, iteration = calculate_T_pellet_surface_iterative(T_ci, T_co, qv_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, delta0)
-    print("Variazioni del gap:", delta_out)
+    R_pellet = D_pellet / 2
+
+    r, T_radial, T_center = solve_pellet_radial_temperature(z=z,q_vol_profile=qv_profile,T_surface=T_f_S,R_pellet=R_pellet,pellet_thermal_conductivity=pellet_thermal_conductivity,
+    Nr=100,
+    tol=1e-6,
+    max_iter=500,
+    alpha=0.5)
     print("Coefficiente di scambio termico totale:", h_tot)
     print("Numero di iterazioni:", iteration)
 
@@ -714,6 +803,15 @@ if __name__ == "__main__":
     plt.savefig(os.path.join(plot_dir, '9_fuel_centerline_temperature.png'))
     plt.close()
 
+    plt.figure(figsize=(10, 6))
+    plt.plot(T_center, z, label='T_centerline_fuel (°C)', color='red')
+    plt.ylabel("z [m]")
+    plt.xlabel("T center [K]")
+    plt.grid()
+    plt.title("Temperatura al centro del pellet lungo z")
+    plt.savefig(os.path.join(plot_dir, '9bis.center_fuel temp.png'))
+    plt.close()
+
     # Nuova figura con tutte le temperature
     plt.figure(figsize=(10, 8))
     plt.plot(T_profile, z, label='Coolant (T_profile)', color='blue')
@@ -728,4 +826,5 @@ if __name__ == "__main__":
     plt.grid()
     plt.savefig(os.path.join(plot_dir, '10_all_temperatures.png'))
     plt.close()
+
 
