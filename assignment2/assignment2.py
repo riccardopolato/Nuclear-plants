@@ -125,9 +125,9 @@ def equilibrium_quality_profile(h_profile, p_sys):
     h_ls = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water')  # Entalpia liquido saturo
     h_vs = CP.PropsSI('H', 'P', p_sys, 'Q', 1, 'Water')  # Entalpia vapore saturo
     H_fg = h_vs - h_ls  # Calore latente di vaporizzazione
-    x_eq_profile = (h_profile - h_ls) / (h_vs - h_ls)
-    x_eq_profile = np.maximum(0, x_eq_profile)  # Forza a 0 i valori negativi
-    return x_eq_profile, H_fg
+    x_eq_completo = (h_profile - h_ls) / (h_vs - h_ls)
+    x_eq_profile = np.maximum(0, x_eq_completo)  # Forza a 0 i valori negativi
+    return x_eq_profile,x_eq_completo, H_fg
 
 # 6) CALCULATION OF THE OUTER CLADDING TEMPERATURE
 
@@ -560,6 +560,37 @@ def solve_pellet_radial_temperature(z,q_vol_profile,T_surface,R_pellet,pellet_th
     return r, T, T_center
         
 
+# 10) CRITICAL FLUX BY W3 AND GRID FACTOR
+
+ 
+def critical_flux_uniform(G_avg, D_eq, p_sys,h_in,h_lsat,x_c):
+       # Uniform Flux
+    p_mpa = p_sys/1e6  # Converti Pa in MPa
+    t1 = (2.022-0.06238*p_mpa)
+    t2 = (0.1722-0.01427*p_mpa)*np.exp((18.177-0.5987*p_mpa)*x_c)
+    t3 = (0.1484-1.596*x_c+0.1729*x_c*np.abs(x_c))*(2.326*G_avg)+3271
+    t4 = (1.157-0.869*x_c)
+    t5 = (0.2664+0.8357*np.exp(-124.1*D_eq))
+    t6 = (0.8285+0.0003413*(h_lsat-h_in))
+    qc_w3_15 = (t1+t2)*t3*t4*t5*t6 # kW/m^2 (critical heat flux per W3)
+    qc_w3_17 = qc_w3_15*0.88 # correzione per passare da 15x15 a 17x17
+
+    p_psi = p_sys*0.000145038  # Converti Pa in psi
+    G_lb = G_avg*737.338/3600  # Converti kg/(m^2 s) in lb/(ft^2 hr)
+
+    #da verificare e provare con metodo della prof (z' che parte da z onb)
+    L_in_ft = (z+(z[-1]-z[0])/2)*3.28084  # Converti m in ft (posizione media lungo z)
+    
+    alpha = 0.038
+
+    #da controllare: consideriamo Ls(in) a 20 e Ks= 0.066
+    Ks = 0.066
+
+    Fs = (p_psi/225.896)**0.5*(1.445-0.0371*L_in_ft)*(np.exp((x_eq_profile+0.2)**2)-0.73)+Ks*G_lb/10e6*(alpha/0.019)**0.35
+    qc_eu = qc_w3_17*Fs  # kW/m^2 (critical heat flux corretto con il fattore di griglia)
+    return qc_w3_17, qc_eu
+
+    
 # ============================================================================
 # MAIN
 # ============================================================================
@@ -616,7 +647,7 @@ if __name__ == "__main__":
     z_sat = z[first_sat_idx] if first_sat_idx is not None else None
 
     # 5) equilibrium quality profile
-    x_eq_profile, H_fg = equilibrium_quality_profile(h_profile, p_sys)
+    x_eq_profile,x_eq_completo, H_fg = equilibrium_quality_profile(h_profile, p_sys)
     
     # 6) outer cladding temperature profile, flow quality and void fraction
     h_single_phase, T_co, T_co_JL, T_co_SP, first_onb_idx = T_outer_cladding_profile(T_sat, G_avg, D_eq, T_profile, p_sys, C, q_flux)
@@ -652,8 +683,12 @@ if __name__ == "__main__":
     # 9) Fuel center line temperature
     T_centerline = calculate_fuel_centerline_temperature(T_f_S, qv_profile, A_fuel)
         
-
-
+    # 10) Critical flux by W3 and grid factor
+    h_in = h_profile[0]/1e3  # kJ/kg
+    h_lsat = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water') / 1e3  # kJ/kg
+    qc_w3,qc_eu = critical_flux_uniform(G_avg, D_eq, p_sys, h_in, h_lsat, x_eq_completo)
+    
+    
 
 
     # ---------------- PLOT ----------------
@@ -825,6 +860,16 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid()
     plt.savefig(os.path.join(plot_dir, '10_all_temperatures.png'))
+    plt.close()
+
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(qc_eu, z)
+    plt.title('Critical Uniform HeatFlux Profile along the z-axis')
+    plt.ylabel('z (m)')
+    plt.xlabel('q_c (kW/m^2)')
+    plt.grid()
+    plt.savefig(os.path.join(plot_dir, '11_critical_flux_uniform.png'))
     plt.close()
 
 
