@@ -2,8 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import CoolProp.CoolProp as CP
 import numpy as np
-import scipy
-from scipy.integrate import cumulative_trapezoid
+from scipy.interpolate import interp1d
+from scipy.integrate import cumulative_trapezoid, trapezoid
 from scipy.special import j0
 import os
 from unit_conversions import psia_to_pa, lbm_per_hr_to_kg_per_s, fahrenheit_to_celsius, inches_to_meters, square_feet_to_square_meters
@@ -562,8 +562,8 @@ def solve_pellet_radial_temperature(z,q_vol_profile,T_surface,R_pellet,pellet_th
 
 # 10) CRITICAL FLUX BY W3 AND GRID FACTOR
 
- 
-def critical_flux_uniform(G_avg, D_eq, p_sys,h_in,h_lsat,x_c):
+# Uniform critical heat flux 
+def critical_flux_uniform(G_avg, D_eq, p_sys,h_in,h_lsat,x_c, L_active_in):
        # Uniform Flux
     p_mpa = p_sys/1e6  # Converti Pa in MPa
     t1 = (2.022-0.06238*p_mpa)
@@ -576,20 +576,74 @@ def critical_flux_uniform(G_avg, D_eq, p_sys,h_in,h_lsat,x_c):
     qc_w3_17 = qc_w3_15*0.88 # correzione per passare da 15x15 a 17x17
 
     p_psi = p_sys*0.000145038  # Converti Pa in psi
-    G_lb = G_avg*737.338/3600  # Converti kg/(m^2 s) in lb/(ft^2 hr)
+    G_lb = G_avg*737.338  # Converti kg/(m^2 s) in lb/(ft^2 hr)
 
     #da verificare e provare con metodo della prof (z' che parte da z onb)
-    L_in_ft = (z+(z[-1]-z[0])/2)*3.28084  # Converti m in ft (posizione media lungo z)
-    
+    #L_in_ft = (z+(z[-1]-z[0])/2)*3.28084  # Converti m in ft (posizione media lungo z)
+    L_ft = L_active_in / 12  # ft (lunghezza attiva del core, 1 ft = 12 in)
     alpha = 0.038
 
     #da controllare: consideriamo Ls(in) a 20 e Ks= 0.066
-    Ks = 0.066
+    # calcolo L_s come rapporto di L_actiove e N_grids (numero di griglie per l'interpolazione)
+    N_grids = 10
+    L_s = L_active_in/N_grids # inches
+    # da tabella facciamo interpolazione (valori in ordine crescente di L_s);
+    # L_s = 16.8 ft è fuori dal range [20, 32], quindi serve estrapolazione lineare
+    L_s_vect = np.array([20, 26, 32])  # ft
+    Ks = np.array([0.066, 0.046, 0.027])
+    Ks_interp = interp1d(L_s_vect, Ks, kind='linear', fill_value='extrapolate')(L_s)
 
-    Fs = (p_psi/225.896)**0.5*(1.445-0.0371*L_in_ft)*(np.exp((x_eq_profile+0.2)**2)-0.73)+Ks*G_lb/10e6*(alpha/0.019)**0.35
+    Fs = (p_psi/225.896)**0.5*(1.445-0.0371*L_ft)*(np.exp((x_eq_profile+0.2)**2)-0.73)+Ks_interp*G_lb/10e6*(alpha/0.019)**0.35
     qc_eu = qc_w3_17*Fs  # kW/m^2 (critical heat flux corretto con il fattore di griglia)
     return qc_w3_17, qc_eu
 
+# non uniform critical heat flux 
+def critical_flux_non_uniform(qc_eu, G_avg, z_array, q_flux_array, z_ONB_idx, x_c):
+    ## Inizializziamo il vettore F(z) con valori pari a 1 (in monofase F = 1)
+    F_profile = np.ones_like(z_array)
+    G_avg_Mlb = G_avg * 737.338e-6  # Converti kg/(m^2 s) in Mlb/(ft^2 hr)
+    # La coordinata di partenza fissa
+    z_ONB = z_array[z_ONB_idx]
+    
+    # Iteriamo SOLO sui nodi successivi all'ONB
+    for i in range(z_ONB_idx + 1, len(z_array)):
+        
+        # 1. Il nostro "L_NU" è semplicemente la z attuale
+        z_corrente = z_array[i]
+        q_corrente = q_flux_array[i]
+        
+        # calcolo C (Tong: C in [in^-1] con G in Mlb/hr/ft^2)
+        C_in = 0.15*(1-x_c[i])**(4.31)/G_avg_Mlb**0.478  # in^-1
+        C = C_in / 0.0254  # m^-1 (per coerenza con z in metri)
+        
+        # 2. Isolo i vettori muti (z') dal punto ONB fino al punto corrente
+        z_prime = z_array[z_ONB_idx : i+1]
+        q_prime = q_flux_array[z_ONB_idx : i+1]
+        
+        # 3. Definisco la funzione integranda
+        # q''(z') * exp(-C * (z_corrente - z'))
+        integranda = q_prime * np.exp(-C * (z_corrente - z_prime))
+        
+        # 4. Calcolo l'integrale con il metodo dei trapezi
+        # NB: in alcune versioni di scipy si usa np.trapz, in quelle nuove scipy.integrate.trapezoid
+        valore_integrale = trapezoid(integranda, z_prime)
+        
+        # 5. Calcolo il denominatore
+        # La distanza di ebollizione è (z_corrente - z_ONB)
+        denominatore = q_corrente * (1.0 - np.exp(-C * (z_corrente - z_ONB)))
+        
+        # 6. Assemblo il fattore F per questo nodo
+        F_profile[i] = (C / denominatore) * valore_integrale
+        
+    qc_NU = qc_eu / F_profile  # kW/m^2 (critical heat flux non uniformemente distribuito)
+    return F_profile, qc_NU
+
+# 11) DNBR and MINIMUM DNBR
+def DNBR_calculation(q_flux, qc_nu):
+    DNBR = qc_nu / q_flux  # Dimensionless
+    MDBNR = np.min(DNBR)  # Minimum Departure from Nucleate Boiling Ratio
+    return DNBR, MDBNR
+    
     
 # ============================================================================
 # MAIN
@@ -611,6 +665,7 @@ if __name__ == "__main__":
 
     # DATI GEOMETRICI (square array)
     D_out_clad = inches_to_meters(0.374)  # m
+    H_active_in = 168  # inches 
     H_active = inches_to_meters(168) # m
     w = inches_to_meters(0.496)  # m (pitch, passo tra le barre)
     s_clad = inches_to_meters(0.0225)  # m (spessore guaina)
@@ -676,8 +731,8 @@ if __name__ == "__main__":
     tol=1e-6,
     max_iter=500,
     alpha=0.5)
-    print("Coefficiente di scambio termico totale:", h_tot)
-    print("Numero di iterazioni:", iteration)
+    # print("Coefficiente di scambio termico totale:", h_tot)
+    # print("Numero di iterazioni:", iteration)
 
 
     # 9) Fuel center line temperature
@@ -686,8 +741,11 @@ if __name__ == "__main__":
     # 10) Critical flux by W3 and grid factor
     h_in = h_profile[0]/1e3  # kJ/kg
     h_lsat = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water') / 1e3  # kJ/kg
-    qc_w3,qc_eu = critical_flux_uniform(G_avg, D_eq, p_sys, h_in, h_lsat, x_eq_completo)
-    
+    qc_w3,qc_eu = critical_flux_uniform(G_avg, D_eq, p_sys, h_in, h_lsat, x_eq_completo, H_active_in)
+    F_profile, qc_NU = critical_flux_non_uniform(qc_eu, G_avg, z, q_flux, first_onb_idx, x_eq_completo)
+    DNBR, MDBNR = DNBR_calculation(q_flux/1e3, qc_NU)  # q_flux convertito in kW/m^2
+    MDBNR_idx = np.argmin(DNBR)
+    z_MDBNR = z[MDBNR_idx]
     
 
 
@@ -859,15 +917,21 @@ if __name__ == "__main__":
     plt.xlabel('Temperature (°C)')
     plt.legend()
     plt.grid()
-    plt.savefig(os.path.join(plot_dir, '10_all_temperatures.png'))
+    plt.savefig(os.path.join(plot_dir, '9_all_temperatures.png'))
     plt.close()
 
 
     plt.figure(figsize=(10, 6))
-    plt.plot(qc_eu, z)
-    plt.title('Critical Uniform HeatFlux Profile along the z-axis')
+    plt.plot(qc_eu, z, label='q_c uniform (W3 + grid factor)')
+    plt.plot(qc_NU, z, linestyle='--', label='q_c non-uniform (Tong F-factor)')
+    plt.plot(q_flux/1e3, z, linestyle=':', label='q_flux (actual)')
+    plt.plot(q_flux[MDBNR_idx]/1e3, z_MDBNR, 'ro',
+             label=f'MDNBR = {MDBNR:.2f} (z = {z_MDBNR:.2f} m)')
+    plt.axhline(z_MDBNR, color='red', linestyle=':', alpha=0.4)
+    plt.title('Critical HeatFlux Profile along the z-axis')
     plt.ylabel('z (m)')
-    plt.xlabel('q_c (kW/m^2)')
+    plt.xlabel('q (kW/m^2)')
+    plt.legend()
     plt.grid()
     plt.savefig(os.path.join(plot_dir, '11_critical_flux_uniform.png'))
     plt.close()
