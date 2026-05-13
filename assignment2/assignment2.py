@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import CoolProp.CoolProp as CP
-import numpy as np
 from scipy.interpolate import interp1d
 from scipy.integrate import cumulative_trapezoid, trapezoid
 from scipy.special import j0
@@ -31,12 +30,14 @@ def volumetric_heat_generation(z, r, P_nom, n_rods, D, H_active, R_eq, F_q):
     q_avg = Tot_power / (n_rods * np.pi * (D/2)**2 * H_active)  # W/m^3
     q_v_max = q_avg * F_q  # W/m^3 (tasso massimo)
     
-    lambda_tr = 0.0029  # m (lunghezza di trasporto)
-    D_c = lambda_tr / 3  # diffusion coeff. in the core
-    D_r = 0.16  # diffusion coeff. in the reflector
-    L_r = 2.85  # m (lunghezza del riflettore)
-    delta = D_c / D_r * L_r  # transport length
-    H_e = H_active + 1.42 * lambda_tr + 2 * delta  # m altezza estrapolata
+    # Tutte le grandezze qui sono in metri (PDF le da' in cm con stessi numeri):
+    # delta = (D_C/D_R) * L_R e' adimensionale * [m] = [m] (cancellazione)
+    lambda_tr = 0.0029     # m (transport mean free path, 0.29 cm)
+    D_c = lambda_tr / 3    # m (diffusion coefficient in the core)
+    D_r = 0.16             # m (diffusion coefficient in the reflector)
+    L_r = 2.85             # m (diffusion length in the reflector)
+    delta = D_c / D_r * L_r  # m (reflector saving ~ 1.72 cm)
+    H_e = H_active + 1.42 * lambda_tr + 2 * delta  # m, altezza estrapolata
     
     # qv_profile = q_v_max * np.cos(np.pi * z / H_e) * j0(np.pi * 2.4048*r / R_eq)  # W/m^3
     qv_profile =  q_v_max * np.cos(np.pi * z / H_e)
@@ -87,7 +88,10 @@ def coolant_specific_enthalpy(z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_ac
     A_fuel = np.pi / 4 * D_pellet**2  # m^2 (area del combustibile)
     
     h_in = CP.PropsSI('H', 'T', T_in + 273.15, 'P', p_sys, 'Water')  # J/kg
-    
+
+    # 1.0267 = 1/0.974: q_v_max e' basato sul 97.4% della potenza (energia nel
+    # fuel), ma il refrigerante riceve la potenza totale (energia trasferita
+    # al canale), quindi qui si "ripristina" il 100%.
     h_profile = h_in + 1.0267 * (q_v_max * A_fuel * H_e) / (W_hc * np.pi) * (np.sin(np.pi * z / H_e) + np.sin(np.pi * H_active / 2 / H_e))
     
     return h_profile, W_hc
@@ -248,8 +252,8 @@ def void_fraction(p_sys, D_eq, zz, i_ONB, i_Det, G_avg, X_flow):
     # Nelle formule empiriche come Rouhani la pressione di sistema è in MPa. 
     p_bar = p_sys / 1e5  # bar
     R_d = 2.37e-3/p_bar**0.237 # m (raggio di una bolla ROUHANI)
-    boubble_layer_thickness = 0.0666 * R_d # m (spessore dello strato di bolle BOWRING)
-    void_fraction_D = 4*boubble_layer_thickness / D_eq # void fraction at Detachment (MAURER)
+    bubble_layer_thickness = 0.0666 * R_d # m (spessore dello strato di bolle BOWRING)
+    void_fraction_D = 4*bubble_layer_thickness / D_eq # void fraction at Detachment (MAURER)
     # tratto lineare tra ONB e Detachment
     void_fraction_profile[i_ONB:i_Det] = np.linspace(0, void_fraction_D, i_Det - i_ONB)
 
@@ -270,8 +274,11 @@ def void_fraction(p_sys, D_eq, zz, i_ONB, i_Det, G_avg, X_flow):
     
     # Correlazione di Zuber-Findlay (Collier-Thome per bubbly flow)
     alpha_post_det = (x / rho_g_sat) / (C_0 * (x / rho_g_sat + (1 - x) / rho_l_sat) + C_1 * (1 / G_avg) * drift_term)
-    
-    # Raccordo il modello aggiungendo la frazione di vuoto a parete per evitare la discontinuità
+
+    # NB: a z = z_det il titolo x = 0, quindi Z-F darebbe alpha = 0, generando
+    # una discontinuità con il tratto lineare che termina a alpha_D. Per garantire
+    # la continuità sommiamo alpha_D ("strato di bolle a parete" + flow void).
+    # Approssimazione conservativa: sovrastima leggermente alpha nel bulk.
     alpha_post_det = void_fraction_D + alpha_post_det
 
     # Inserisco i valori nel profilo totale
@@ -471,9 +478,6 @@ def calculate_fuel_centerline_temperature(T_f_S_profile, q_vol_profile, A_fuel):
         T_centerline[i] = T_CL_sol
         
     return T_centerline
-    
-import numpy as np
-import matplotlib.pyplot as plt
 
 
 def solve_pellet_radial_temperature(z,q_vol_profile,T_surface,R_pellet,pellet_thermal_conductivity,Nr=100,tol=1e-6,max_iter=500,alpha=0.5):
@@ -593,7 +597,7 @@ def critical_flux_uniform(G_avg, D_eq, p_sys,h_in,h_lsat,x_c, L_active_in):
     Ks = np.array([0.066, 0.046, 0.027])
     Ks_interp = interp1d(L_s_vect, Ks, kind='linear', fill_value='extrapolate')(L_s)
 
-    Fs = (p_psi/225.896)**0.5*(1.445-0.0371*L_ft)*(np.exp((x_eq_profile+0.2)**2)-0.73)+Ks_interp*G_lb/10e6*(alpha/0.019)**0.35
+    Fs = (p_psi/225.896)**0.5*(1.445-0.0371*L_ft)*(np.exp((x_c+0.2)**2)-0.73)+Ks_interp*G_lb/1e6*(alpha/0.019)**0.35
     qc_eu = qc_w3_17*Fs  # kW/m^2 (critical heat flux corretto con il fattore di griglia)
     return qc_w3_17, qc_eu
 
@@ -640,9 +644,15 @@ def critical_flux_non_uniform(qc_eu, G_avg, z_array, q_flux_array, z_ONB_idx, x_
 
 # 11) DNBR and MINIMUM DNBR
 def DNBR_calculation(q_flux, qc_nu):
+    """
+    DNBR(z) = q_c,NU(z) / q(z).
+    IMPORTANTE: q_flux e qc_nu devono avere la STESSA unita' (entrambi kW/m^2
+    oppure entrambi W/m^2). Nel main convertiamo q_flux/1e3 perche' qc_nu e'
+    in kW/m^2 mentre q_flux nel resto del codice e' in W/m^2.
+    """
     DNBR = qc_nu / q_flux  # Dimensionless
-    MDBNR = np.min(DNBR)  # Minimum Departure from Nucleate Boiling Ratio
-    return DNBR, MDBNR
+    MDNBR = np.min(DNBR)   # Minimum Departure from Nucleate Boiling Ratio
+    return DNBR, MDNBR
     
     
 # ============================================================================
@@ -758,9 +768,9 @@ if __name__ == "__main__":
         G_avg, D_eq, p_sys, h_in_kJ, h_lsat_kJ, x_eq_completo, H_active_in)
     F_profile, qc_NU = critical_flux_non_uniform(
         qc_eu, G_avg, z, q_flux, first_onb_idx, x_eq_completo)
-    DNBR, MDBNR = DNBR_calculation(q_flux/1e3, qc_NU)  # entrambi in kW/m^2
-    MDBNR_idx = np.argmin(DNBR)
-    z_MDBNR = z[MDBNR_idx]
+    DNBR, MDNBR = DNBR_calculation(q_flux/1e3, qc_NU)  # entrambi in kW/m^2
+    MDNBR_idx = np.argmin(DNBR)
+    z_MDNBR = z[MDNBR_idx]
 
 
     # ===================================================================
@@ -895,8 +905,8 @@ if __name__ == "__main__":
                [{'x': qc_eu, 'label': 'q_c uniform (W3 + grid factor)'},
                 {'x': qc_NU, 'label': 'q_c non-uniform (Tong F-factor)', 'linestyle': '--'},
                 {'x': q_flux/1e3, 'label': 'q_flux (actual)', 'linestyle': ':'}],
-               markers=[{'x': q_flux[MDBNR_idx]/1e3, 'z': z_MDBNR, 'fmt': 'ro',
-                         'label': f'MDNBR = {MDBNR:.2f} (z = {z_MDBNR:.2f} m)'}],
-               hlines=[{'z': z_MDBNR}])
+               markers=[{'x': q_flux[MDNBR_idx]/1e3, 'z': z_MDNBR, 'fmt': 'ro',
+                         'label': f'MDNBR = {MDNBR:.2f} (z = {z_MDNBR:.2f} m)'}],
+               hlines=[{'z': z_MDNBR}])
 
 
