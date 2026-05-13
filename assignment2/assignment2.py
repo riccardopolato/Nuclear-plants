@@ -650,290 +650,253 @@ def DNBR_calculation(q_flux, qc_nu):
 # ============================================================================
 
 if __name__ == "__main__":
-    
-    # DATI DA TABELLA
+
+    # ------------------- INPUT: condizioni operative -------------------
     P_nom = 3400e6  # W
     p_sys = psia_to_pa(2250)  # Pa
     n_rods = 157 * 264
     m_flow_tot = lbm_per_hr_to_kg_per_s(113.5e6)  # kg/s
-    F_q = 2.6  # heat flux hot channel factor
-    Bypass_fraction = 0.059  # frazione di bypass flow (5,9%)
-    m_flow_eff = m_flow_tot * (1 - Bypass_fraction)  # kg/s (portata effettiva considerando 5,9% di bypass flow)
-    A_flow_eff = square_feet_to_square_meters(41.8)  # m^2 (area di flusso effettiva)
-    T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water') #[K]
-    T_in = fahrenheit_to_celsius(535)   # C (temperatura di ingresso)
+    F_q = 2.6
+    Bypass_fraction = 0.059
+    m_flow_eff = m_flow_tot * (1 - Bypass_fraction)
+    A_flow_eff = square_feet_to_square_meters(41.8)  # m^2
+    T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water')  # K
+    T_in = fahrenheit_to_celsius(535)  # °C
 
-    # DATI GEOMETRICI (square array)
-    D_out_clad = inches_to_meters(0.374)  # m
-    H_active_in = 168  # inches 
-    H_active = inches_to_meters(168) # m
-    w = inches_to_meters(0.496)  # m (pitch, passo tra le barre)
-    s_clad = inches_to_meters(0.0225)  # m (spessore guaina)
-    D_in_clad = D_out_clad - 2 * s_clad  # m (diametro interno)
-    D_pellet = inches_to_meters(0.3225)  # m (diametro pellet)
-    P_wet = np.pi * D_out_clad # m (perimetro bagnato)
-    C = 0.042*w/D_out_clad - 0.024  # coefficiente per la correlazione di Dittus-Boelter
+    # ------------------- INPUT: geometria (square array) ---------------
+    D_out_clad = inches_to_meters(0.374)
+    H_active_in = 168
+    H_active = inches_to_meters(H_active_in)
+    w = inches_to_meters(0.496)  # pitch
+    s_clad = inches_to_meters(0.0225)
+    D_in_clad = D_out_clad - 2 * s_clad
+    D_pellet = inches_to_meters(0.3225)
     R_eq = inches_to_meters(119.7)
 
-    # DISCRETIZZAZIONE DI Z (ASSIALE)
-    dzz = 0.0254/2  # m (passo di discretizzazione, metà pollice)
-    z = np.arange(-H_active/2, H_active/2 + dzz, dzz)  # m (asse z, da -H/2 a H/2 con passo dzz)
-    r = np.arange(0, R_eq + dzz, dzz)  # m (raggio, da 0 a R_eq con passo dzz)
-
-    # CALCOLO AREA DI FLUSSO PER CANALE
-    A_c = w**2 - np.pi/4 * D_out_clad**2  # m^2
-    D_eq = 4 * A_c / P_wet  # m (diametro equivalente)
-
-    # CHIAMATA ALLE FUNZIONI
-    # 1-2) average and maximum volumetric heat generation rate
-    qv_profile, H_e, q_avg, q_v_max = volumetric_heat_generation(z, r, P_nom, n_rods, D_pellet, H_active, R_eq, F_q)
-    
-    # calcolo il q_flux
+    # ------------------- Derivate geometriche --------------------------
+    P_wet = np.pi * D_out_clad
+    A_c = w**2 - np.pi/4 * D_out_clad**2
+    D_eq = 4 * A_c / P_wet
     A_fuel = np.pi/4 * D_pellet**2
-    q_flux = qv_profile * A_fuel/P_wet  # W/m^2 (heat flux sulla guaina)
-    
-    # 3) average mass velocity 
+    R_pellet = D_pellet / 2
+    C = 0.042*w/D_out_clad - 0.024  # coefficiente Dittus-Boelter
+
+    # ------------------- Griglia assiale e radiale ---------------------
+    dzz = 0.0254/2  # mezzo pollice
+    z = np.arange(-H_active/2, H_active/2 + dzz, dzz)
+    r = np.arange(0, R_eq + dzz, dzz)
+
+    # ===================================================================
+    # 1-2) Generazione di calore volumetrica e flusso termico sulla guaina
+    # ===================================================================
+    qv_profile, H_e, q_avg, q_v_max = volumetric_heat_generation(
+        z, r, P_nom, n_rods, D_pellet, H_active, R_eq, F_q)
+    q_flux = qv_profile * A_fuel / P_wet  # W/m^2
+
+    # ===================================================================
+    # 3) Velocità di massa media
+    # ===================================================================
     G_avg = average_mass_velocity(m_flow_eff, A_flow_eff)
-    
-    # 4) coolant specific enthalpy and temperature profiles 
-    h_profile, W_hc = coolant_specific_enthalpy(z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_active, T_in)
-    
+
+    # ===================================================================
+    # 4) Entalpia e temperatura del refrigerante
+    # ===================================================================
+    h_profile, W_hc = coolant_specific_enthalpy(
+        z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_active, T_in)
     T_profile, first_sat_idx = temperature_profile(h_profile, p_sys)
     z_sat = z[first_sat_idx] if first_sat_idx is not None else None
 
-    # 5) equilibrium quality profile
-    x_eq_profile,x_eq_completo, H_fg = equilibrium_quality_profile(h_profile, p_sys)
-    
-    # 6) outer cladding temperature profile, flow quality and void fraction
-    h_single_phase, T_co, T_co_JL, T_co_SP, first_onb_idx = T_outer_cladding_profile(T_sat, G_avg, D_eq, T_profile, p_sys, C, q_flux)
+    # ===================================================================
+    # 5) Titolo di equilibrio
+    # ===================================================================
+    x_eq_profile, x_eq_completo, H_fg = equilibrium_quality_profile(h_profile, p_sys)
+
+    # ===================================================================
+    # 6) Cladding esterno, flow quality, void fraction
+    # ===================================================================
+    h_single_phase, T_co, T_co_JL, T_co_SP, first_onb_idx = T_outer_cladding_profile(
+        T_sat, G_avg, D_eq, T_profile, p_sys, C, q_flux)
     z_NB = z[first_onb_idx] if first_onb_idx is not None else None
     T_NB = T_profile[first_onb_idx] if first_onb_idx is not None else None
 
-    T_det, z_det, first_detachment_idx= detachment(h_single_phase, q_flux, T_sat, T_profile, z)
+    T_det, z_det, first_detachment_idx = detachment(
+        h_single_phase, q_flux, T_sat, T_profile, z)
 
-    x_flow_R, x_flow_B = flow_quality_two_phase(h_single_phase, T_sat, T_profile, first_detachment_idx, H_fg, p_sys, q_flux, z, z_det, P_wet, W_hc)
-    
-    # void fraction calcolata a partire dal titolo con formula di Rouhani
-    alpha_ZF_R, alpha_F_R, alpha_M_R = void_fraction(p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_R)
-    alpha_ZF_B, alpha_F_B, alpha_M_B = void_fraction(p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_B)
+    x_flow_R, x_flow_B = flow_quality_two_phase(
+        h_single_phase, T_sat, T_profile, first_detachment_idx,
+        H_fg, p_sys, q_flux, z, z_det, P_wet, W_hc)
 
-    # 7) Cladding inner wall temperature
+    alpha_ZF_R, alpha_F_R, alpha_M_R = void_fraction(
+        p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_R)
+    alpha_ZF_B, alpha_F_B, alpha_M_B = void_fraction(
+        p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_B)
+
+    # ===================================================================
+    # 7-8-9) Profili di T da cladding interno fino al centerline pellet
+    # ===================================================================
     T_ci = T_inner_cladding_profile(T_co, qv_profile, A_fuel, D_in_clad, D_out_clad)
 
-    # 8) Pellet surface temperature
-    T_amb = 25  # °C (temperatura ambiente per il calcolo dell'espansione termica)
-    delta0 = 0.5*(D_in_clad - D_pellet)  # m (gap iniziale)
-    T_f_S, h_tot, delta_out, T_center, iteration = calculate_T_pellet_surface_iterative(T_ci, T_co, qv_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, delta0)
-    R_pellet = D_pellet / 2
+    T_amb = 25
+    delta0 = 0.5*(D_in_clad - D_pellet)
+    T_f_S, h_tot, delta_out, T_center, iteration = calculate_T_pellet_surface_iterative(
+        T_ci, T_co, qv_profile, A_fuel, D_pellet, D_in_clad, D_out_clad,
+        T_amb, p_sys, delta0)
 
-    r, T_radial, T_center = solve_pellet_radial_temperature(z=z,q_vol_profile=qv_profile,T_surface=T_f_S,R_pellet=R_pellet,pellet_thermal_conductivity=pellet_thermal_conductivity,
-    Nr=100,
-    tol=1e-6,
-    max_iter=500,
-    alpha=0.5)
-    # print("Coefficiente di scambio termico totale:", h_tot)
-    # print("Numero di iterazioni:", iteration)
+    r, T_radial, T_center = solve_pellet_radial_temperature(
+        z=z, q_vol_profile=qv_profile, T_surface=T_f_S, R_pellet=R_pellet,
+        pellet_thermal_conductivity=pellet_thermal_conductivity,
+        Nr=100, tol=1e-6, max_iter=500, alpha=0.5)
 
-
-    # 9) Fuel center line temperature
     T_centerline = calculate_fuel_centerline_temperature(T_f_S, qv_profile, A_fuel)
-        
-    # 10) Critical flux by W3 and grid factor
-    h_in = h_profile[0]/1e3  # kJ/kg
-    h_lsat = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water') / 1e3  # kJ/kg
-    qc_w3,qc_eu = critical_flux_uniform(G_avg, D_eq, p_sys, h_in, h_lsat, x_eq_completo, H_active_in)
-    F_profile, qc_NU = critical_flux_non_uniform(qc_eu, G_avg, z, q_flux, first_onb_idx, x_eq_completo)
-    DNBR, MDBNR = DNBR_calculation(q_flux/1e3, qc_NU)  # q_flux convertito in kW/m^2
+
+    # ===================================================================
+    # 10) Flusso critico W3, fattore di griglia, F-factor di Tong, MDNBR
+    # ===================================================================
+    h_in_kJ = h_profile[0] / 1e3
+    h_lsat_kJ = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water') / 1e3
+    qc_w3, qc_eu = critical_flux_uniform(
+        G_avg, D_eq, p_sys, h_in_kJ, h_lsat_kJ, x_eq_completo, H_active_in)
+    F_profile, qc_NU = critical_flux_non_uniform(
+        qc_eu, G_avg, z, q_flux, first_onb_idx, x_eq_completo)
+    DNBR, MDBNR = DNBR_calculation(q_flux/1e3, qc_NU)  # entrambi in kW/m^2
     MDBNR_idx = np.argmin(DNBR)
     z_MDBNR = z[MDBNR_idx]
-    
 
 
-    # ---------------- PLOT ----------------
-    # Crea la cartella 'plots' se non esiste
+    # ===================================================================
+    # PLOT
+    # ===================================================================
     plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plots')
     os.makedirs(plot_dir, exist_ok=True)
 
+    def plot_axial(filename, xlabel, title, curves, *, ylim=None, markers=(),
+                   hlines=(), figsize=(10, 6)):
+        """Salva un plot x-vs-z con una o più curve. Ogni curva è un dict
+        con chiave 'x' (dati) + eventuali kwargs di plt.plot (label, linestyle, ...)."""
+        plt.figure(figsize=figsize)
+        show_legend = False
+        for c in curves:
+            kwargs = {k: v for k, v in c.items() if k != 'x'}
+            plt.plot(c['x'], z, **kwargs)
+            show_legend = show_legend or 'label' in kwargs
+        for mk in markers:
+            plt.plot(mk['x'], mk['z'], mk.get('fmt', 'ro'), label=mk.get('label'))
+            show_legend = True
+        for hl in hlines:
+            plt.axhline(hl['z'], color=hl.get('color', 'red'),
+                        linestyle=hl.get('linestyle', ':'), alpha=hl.get('alpha', 0.4))
+        plt.title(title)
+        plt.ylabel('z (m)')
+        plt.xlabel(xlabel)
+        if ylim is not None:
+            plt.ylim(ylim)
+        if show_legend:
+            plt.legend()
+        plt.grid()
+        plt.savefig(os.path.join(plot_dir, filename))
+        plt.close()
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(qv_profile, z)
-    plt.title('Volumetric Heat Generation Rate along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('q_v (W/m^3)')
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '1_volumetric_heat_generation.png'))
-    plt.close()
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(h_profile, z)
-    plt.title('Coolant Specific Enthalpy Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('h (J/kg)')
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '4.1_coolant_specific_enthalpy.png'))
-    plt.close()
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(T_profile, z, label='T_coolant (°C)')
+    # 1) Volumetric heat generation
+    plot_axial('1_volumetric_heat_generation.png', 'q_v (W/m^3)',
+               'Volumetric Heat Generation Rate along the z-axis',
+               [{'x': qv_profile}])
+
+    # 4.1) Coolant enthalpy
+    plot_axial('4.1_coolant_specific_enthalpy.png', 'h (J/kg)',
+               'Coolant Specific Enthalpy Profile along the z-axis',
+               [{'x': h_profile}])
+
+    # 4.2) Coolant temperature con detachment/ONB/saturation
+    T_markers = []
     if T_det is not None:
-        plt.plot(T_det, z_det, 'ro', label=f'Detachment Point (T={T_det:.1f} °C, z={z_det:.2f} m)')
+        T_markers.append({'x': T_det, 'z': z_det, 'fmt': 'ro',
+                          'label': f'Detachment Point (T={T_det:.1f} °C, z={z_det:.2f} m)'})
     if T_NB is not None:
-        plt.plot(T_NB, z_NB, 'bo', label=f'ONB Point (T={T_NB:.1f} °C, z={z_NB:.2f} m)')
+        T_markers.append({'x': T_NB, 'z': z_NB, 'fmt': 'bo',
+                          'label': f'ONB Point (T={T_NB:.1f} °C, z={z_NB:.2f} m)'})
     if z_sat is not None:
-        plt.plot(T_sat - 273.15, z_sat, 'go', label=f'Saturated Point (T={T_sat:.1f} °C, z={z_sat:.2f} m)')
-    plt.title('Coolant Temperature Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('T (°C)')
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '4.2_coolant_temperature_profile.png'))
-    plt.close()
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(x_eq_profile, z)
-    plt.title('Equilibrium Quality Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('x (kg/kg)')
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '5_equilibrium_quality.png'))
-    plt.close()
+        T_markers.append({'x': T_sat - 273.15, 'z': z_sat, 'fmt': 'go',
+                          'label': f'Saturated Point (T={T_sat:.1f} °C, z={z_sat:.2f} m)'})
+    plot_axial('4.2_coolant_temperature_profile.png', 'T (°C)',
+               'Coolant Temperature Profile along the z-axis',
+               [{'x': T_profile, 'label': 'T_coolant (°C)'}], markers=T_markers)
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(T_co, z, label='T_co (Actual)', color='black', linewidth=2)
-    plt.plot(T_co_JL, z, label='T_co_JL (Jens-Lottes)', linestyle='--')
-    plt.plot(T_co_SP, z, label='T_co_SP (Single Phase)', linestyle='-.')
-    plt.title('Outer Cladding Temperature Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('Temperature (°C)')
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '6.1_outer_cladding_temperature.png'))
-    plt.close()
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(x_flow_R, z, label="Rouhani eps")
-    plt.plot(x_flow_B, z, label="Bowring eps=1.6", linestyle='--')
-    plt.title('Flow Quality Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('x (kg/kg)')
-    #plt.ylim(0.5, max(z))
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '6.2_flow_quality.png'))
-    plt.close()
+    # 5) Equilibrium quality
+    plot_axial('5_equilibrium_quality.png', 'x (kg/kg)',
+               'Equilibrium Quality Profile along the z-axis',
+               [{'x': x_eq_profile}])
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(alpha_ZF_R, z, label='Void Fraction (Zuber-Findlay + Rouhani)', color='blue')
-    plt.plot(alpha_F_R, z, label='Void Fraction (Fauske + Rouhani)', color='blue', linestyle='--')
-    plt.plot(alpha_M_R, z, label='Void Fraction (Moody + Rouhani)', color='blue', linestyle='-.')
-    plt.plot(alpha_ZF_B, z, label='Void Fraction (Zuber-Findlay + Bowring)', color='green')
-    plt.plot(alpha_F_B, z, label='Void Fraction (Fauske + Bowring)', color='green', linestyle='--')
-    plt.plot(alpha_M_B, z, label='Void Fraction (Moody + Bowring)', color='green', linestyle='-.')
-    plt.title('Void Fraction Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('Void Fraction')
-    plt.ylim(-0.25, max(z))
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '6.3_void_fraction.png'))
-    plt.close()   
+    # 6.1) Outer cladding temperature
+    plot_axial('6.1_outer_cladding_temperature.png', 'Temperature (°C)',
+               'Outer Cladding Temperature Profile along the z-axis',
+               [{'x': T_co, 'label': 'T_co (Actual)', 'color': 'black', 'linewidth': 2},
+                {'x': T_co_JL, 'label': 'T_co_JL (Jens-Lottes)', 'linestyle': '--'},
+                {'x': T_co_SP, 'label': 'T_co_SP (Single Phase)', 'linestyle': '-.'}])
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(T_ci, z, label='T_inner_cladding (°C)', color='red')
-    plt.plot(T_co, z, label='T_outer_cladding (°C)', color='black', linestyle='--')
-    plt.title('Inner Cladding Temperature Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('T_inner (°C)')
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '7_inner_cladding_temperature.png'))
-    plt.close()
+    # 6.2) Flow quality
+    plot_axial('6.2_flow_quality.png', 'x (kg/kg)',
+               'Flow Quality Profile along the z-axis',
+               [{'x': x_flow_R, 'label': 'Rouhani eps'},
+                {'x': x_flow_B, 'label': 'Bowring eps=1.6', 'linestyle': '--'}])
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(T_f_S, z, label='T_surface_fuel (°C)', color='red')
-    plt.title('Pellet Surface Temperature Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('T_surface_fuel (°C)')
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '8_fuel_surface_temperature.png'))
-    plt.close()
+    # 6.3) Void fraction
+    plot_axial('6.3_void_fraction.png', 'Void Fraction',
+               'Void Fraction Profile along the z-axis',
+               [{'x': alpha_ZF_R, 'label': 'Void Fraction (Zuber-Findlay + Rouhani)', 'color': 'blue'},
+                {'x': alpha_F_R,  'label': 'Void Fraction (Fauske + Rouhani)', 'color': 'blue', 'linestyle': '--'},
+                {'x': alpha_M_R,  'label': 'Void Fraction (Moody + Rouhani)',  'color': 'blue', 'linestyle': '-.'},
+                {'x': alpha_ZF_B, 'label': 'Void Fraction (Zuber-Findlay + Bowring)', 'color': 'green'},
+                {'x': alpha_F_B,  'label': 'Void Fraction (Fauske + Bowring)', 'color': 'green', 'linestyle': '--'},
+                {'x': alpha_M_B,  'label': 'Void Fraction (Moody + Bowring)',  'color': 'green', 'linestyle': '-.'}],
+               ylim=(-0.25, max(z)))
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(delta_out, z, label='Gap Thickness (m)', color='red')
-    
-    # Trova e plotta il punto di minimo del gap
+    # 7) Inner cladding temperature
+    plot_axial('7_inner_cladding_temperature.png', 'T_inner (°C)',
+               'Inner Cladding Temperature Profile along the z-axis',
+               [{'x': T_ci, 'label': 'T_inner_cladding (°C)', 'color': 'red'},
+                {'x': T_co, 'label': 'T_outer_cladding (°C)', 'color': 'black', 'linestyle': '--'}])
+
+    # 8) Fuel surface temperature
+    plot_axial('8_fuel_surface_temperature.png', 'T_surface_fuel (°C)',
+               'Pellet Surface Temperature Profile along the z-axis',
+               [{'x': T_f_S, 'label': 'T_surface_fuel (°C)', 'color': 'red'}])
+
+    # 8bis) Gap thickness con minimo
     min_idx = np.argmin(delta_out)
-    min_delta = delta_out[min_idx]
-    z_min_delta = z[min_idx]
-    plt.plot(min_delta, z_min_delta, 'bo', label=f'Min gap: {min_delta:.2e} m (z = {z_min_delta:.2f} m)')
-    
-    plt.title('Gap Thickness Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('Gap Thickness (m)')
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '8_gap_thickness.png'))
-    plt.close()
+    plot_axial('8_gap_thickness.png', 'Gap Thickness (m)',
+               'Gap Thickness Profile along the z-axis',
+               [{'x': delta_out, 'label': 'Gap Thickness (m)', 'color': 'red'}],
+               markers=[{'x': delta_out[min_idx], 'z': z[min_idx], 'fmt': 'bo',
+                         'label': f'Min gap: {delta_out[min_idx]:.2e} m (z = {z[min_idx]:.2f} m)'}])
 
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(T_center, z, label='T_center_fuel (°C)', color='red')
-    # plt.title('Fuel Center Line Temperature Profile along the z-axis')
-    # plt.ylabel('z (m)')
-    # plt.xlabel('T_center_fuel (°C)')
-    # plt.legend()
-    # plt.grid()
-    # plt.savefig(os.path.join(plot_dir, '9_fuel_center_temperature.png'))
-    # plt.close()
+    # 9) Fuel centerline (analitico)
+    plot_axial('9_fuel_centerline_temperature.png', 'T_centerline_fuel (°C)',
+               'Fuel Center Line Temperature Profile along the z-axis',
+               [{'x': T_centerline, 'label': 'T_centerline_fuel (°C)', 'color': 'red'}])
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(T_centerline, z, label='T_centerline_fuel (°C)', color='red')
-    plt.title('Fuel Center Line Temperature Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('T_centerline_fuel (°C)')
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '9_fuel_centerline_temperature.png'))
-    plt.close()
+    # 9bis) Fuel center da soluzione radiale
+    plot_axial('9bis_center_fuel_temp.png', 'T center [K]',
+               'Temperatura al centro del pellet lungo z',
+               [{'x': T_center, 'label': 'T_centerline_fuel (°C)', 'color': 'red'}])
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(T_center, z, label='T_centerline_fuel (°C)', color='red')
-    plt.ylabel("z [m]")
-    plt.xlabel("T center [K]")
-    plt.grid()
-    plt.title("Temperatura al centro del pellet lungo z")
-    plt.savefig(os.path.join(plot_dir, '9bis.center_fuel temp.png'))
-    plt.close()
+    # 9 all) Tutte le temperature
+    plot_axial('9_all_temperatures.png', 'Temperature (°C)',
+               'All Temperatures Profile along the z-axis',
+               [{'x': T_profile, 'label': 'Coolant (T_profile)', 'color': 'blue'},
+                {'x': T_co, 'label': 'Cladding Outside (T_co)', 'color': 'black'},
+                {'x': T_ci, 'label': 'Cladding Inside (T_ci)', 'color': 'green'},
+                {'x': T_f_S, 'label': 'Fuel Surface (T_f_S)', 'color': 'orange'},
+                {'x': T_centerline, 'label': 'Fuel Centerline', 'color': 'red'}],
+               figsize=(10, 8))
 
-    # Nuova figura con tutte le temperature
-    plt.figure(figsize=(10, 8))
-    plt.plot(T_profile, z, label='Coolant (T_profile)', color='blue')
-    plt.plot(T_co, z, label='Cladding Outside (T_co)', color='black')
-    plt.plot(T_ci, z, label='Cladding Inside (T_ci)', color='green')
-    plt.plot(T_f_S, z, label='Fuel Surface (T_f_S)', color='orange')
-    plt.plot(T_centerline, z, label='Fuel Centerline', color='red')
-    plt.title('All Temperatures Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('Temperature (°C)')
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '9_all_temperatures.png'))
-    plt.close()
-
-
-    plt.figure(figsize=(10, 6))
-    plt.plot(qc_eu, z, label='q_c uniform (W3 + grid factor)')
-    plt.plot(qc_NU, z, linestyle='--', label='q_c non-uniform (Tong F-factor)')
-    plt.plot(q_flux/1e3, z, linestyle=':', label='q_flux (actual)')
-    plt.plot(q_flux[MDBNR_idx]/1e3, z_MDBNR, 'ro',
-             label=f'MDNBR = {MDBNR:.2f} (z = {z_MDBNR:.2f} m)')
-    plt.axhline(z_MDBNR, color='red', linestyle=':', alpha=0.4)
-    plt.title('Critical HeatFlux Profile along the z-axis')
-    plt.ylabel('z (m)')
-    plt.xlabel('q (kW/m^2)')
-    plt.legend()
-    plt.grid()
-    plt.savefig(os.path.join(plot_dir, '11_critical_flux_uniform.png'))
-    plt.close()
+    # 11) Critical heat flux + MDNBR
+    plot_axial('11_critical_flux_uniform.png', 'q (kW/m^2)',
+               'Critical HeatFlux Profile along the z-axis',
+               [{'x': qc_eu, 'label': 'q_c uniform (W3 + grid factor)'},
+                {'x': qc_NU, 'label': 'q_c non-uniform (Tong F-factor)', 'linestyle': '--'},
+                {'x': q_flux/1e3, 'label': 'q_flux (actual)', 'linestyle': ':'}],
+               markers=[{'x': q_flux[MDBNR_idx]/1e3, 'z': z_MDBNR, 'fmt': 'ro',
+                         'label': f'MDNBR = {MDBNR:.2f} (z = {z_MDBNR:.2f} m)'}],
+               hlines=[{'z': z_MDBNR}])
 
 
