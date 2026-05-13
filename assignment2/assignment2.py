@@ -909,4 +909,44 @@ if __name__ == "__main__":
                          'label': f'MDNBR = {MDNBR:.2f} (z = {z_MDNBR:.2f} m)'}],
                hlines=[{'z': z_MDNBR}])
 
+    # ===================================================================
+    # 12) Verifica dei limiti termici di progetto
+    # ===================================================================
+    # Limiti tipici PWR (slide assignment + manuali Westinghouse):
+    #   MDNBR >= 1.85 a potenza nominale
+    #   MDNBR >= 1.30 a massima overpower (typicamente 115% di P_nom)
+    #   T_fuel,CL < 2800 degC (limite di sicurezza, fusione UO2 ~2840 degC)
+    #   T_clad,out < 350 degC in operazione nominale (limite progettuale)
+    MDNBR_LIMIT_NOMINAL   = 1.85
+    MDNBR_LIMIT_OVERPOWER = 1.30
+    OVERPOWER_FACTOR      = 1.15
+    T_FUEL_LIMIT_C        = 2800.0
+    T_CLAD_LIMIT_C        = 350.0
+
+    MDNBR_at_overpower = MDNBR / OVERPOWER_FACTOR  # stima: q sale, q_c ~costante
+    T_fuel_max = float(np.max(T_centerline))
+    T_clad_max = float(np.max(T_co))
+
+    def _status(value, limit, higher_is_safer):
+        ok = (value >= limit) if higher_is_safer else (value <= limit)
+        return "OK" if ok else "FAIL"
+
+    print("\n" + "=" * 70)
+    print(" VERIFICA LIMITI TERMICI DI PROGETTO")
+    print("=" * 70)
+    print(f" MDNBR nominale          = {MDNBR:6.3f}   "
+          f"(limite >= {MDNBR_LIMIT_NOMINAL:.2f})   "
+          f"[{_status(MDNBR, MDNBR_LIMIT_NOMINAL, higher_is_safer=True)}]")
+    print(f"   posizione z(MDNBR)    = {z_MDNBR:+.3f} m")
+    print(f" MDNBR @ {OVERPOWER_FACTOR*100:.0f}% overpower  = {MDNBR_at_overpower:6.3f}   "
+          f"(limite >= {MDNBR_LIMIT_OVERPOWER:.2f})   "
+          f"[{_status(MDNBR_at_overpower, MDNBR_LIMIT_OVERPOWER, higher_is_safer=True)}]")
+    print(f" T fuel centerline max   = {T_fuel_max:6.1f} degC  "
+          f"(limite <= {T_FUEL_LIMIT_C:.0f} degC) "
+          f"[{_status(T_fuel_max, T_FUEL_LIMIT_C, higher_is_safer=False)}]")
+    print(f" T cladding outer max    = {T_clad_max:6.1f} degC  "
+          f"(limite <= {T_CLAD_LIMIT_C:.0f} degC)  "
+          f"[{_status(T_clad_max, T_CLAD_LIMIT_C, higher_is_safer=False)}]")
+    print("=" * 70)
+
 
