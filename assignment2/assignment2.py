@@ -11,101 +11,91 @@ from unit_conversions import psia_to_pa, lbm_per_hr_to_kg_per_s, fahrenheit_to_c
 # 1) VOLUMETRIC HEAT GENERATION RATE
 def volumetric_heat_generation(z, r, P_nom, n_rods, D, H_active, R_eq, F_q):
     """
-    Profilo di generazione di calore volumetrico lungo z (chopped cosine).
-    D = diametro pellet (m). r, R_eq servono solo al termine radiale di Bessel
-    (commentato: si lavora nel sub-canale centrale, r=0 -> J0(0)=1).
-    Ritorna: qv_profile (W/m^3), H_e (m), q_avg (W/m^3), q_v_max (W/m^3).
+    Volumetric heat generation profile along z (chopped cosine).
+    D = pellet diameter (m). r, R_eq are only used by the radial Bessel term
+    (commented out: the calculation is for the central sub-channel, r=0 -> J0(0)=1).
+    Returns: qv_profile (W/m^3), H_e (m), q_avg (W/m^3), q_v_max (W/m^3).
     """
-    Tot_power = P_nom * 0.974  # W (potenza totale generata)
+    Tot_power = P_nom * 0.974  # W (power generated inside the fuel)
     q_avg = Tot_power / (n_rods * np.pi * (D/2)**2 * H_active)  # W/m^3
-    q_v_max = q_avg * F_q  # W/m^3 (tasso massimo)
-    
-    # Tutte le grandezze qui sono in metri (PDF le da' in cm con stessi numeri):
-    # delta = (D_C/D_R) * L_R e' adimensionale * [m] = [m] (cancellazione)
+    q_v_max = q_avg * F_q  # W/m^3
+
+    # All quantities here are in metres (the PDF gives them in cm with the same
+    # numbers): delta = (D_C/D_R) * L_R is dimensionless * [m] = [m] (cancellation).
     lambda_tr = 0.0029     # m (transport mean free path, 0.29 cm)
     D_c = lambda_tr / 3    # m (diffusion coefficient in the core)
     D_r = 0.16             # m (diffusion coefficient in the reflector)
     L_r = 2.85             # m (diffusion length in the reflector)
     delta = D_c / D_r * L_r  # m (reflector saving ~ 1.72 cm)
-    H_e = H_active + 1.42 * lambda_tr + 2 * delta  # m, altezza estrapolata
-    
+    H_e = H_active + 1.42 * lambda_tr + 2 * delta  # m (extrapolated height)
+
     # qv_profile = q_v_max * np.cos(np.pi * z / H_e) * j0(np.pi * 2.4048*r / R_eq)  # W/m^3
-    qv_profile =  q_v_max * np.cos(np.pi * z / H_e)
+    qv_profile = q_v_max * np.cos(np.pi * z / H_e)
     return qv_profile, H_e, q_avg, q_v_max
 
 
 # 2) AVERAGE MASS VELOCITY
 def average_mass_velocity(m_flow_eff, A_flow_eff):
-    """
-    Calcola la velocità di massa media.
-    
-    Parameters:
-    - m_flow_eff: portata effettiva (kg/s)
-    - A_flow_eff: area di flusso effettiva (m^2)
-    
-    Returns:
-    - G_avg: velocità di massa media (kg/(m^2 s))
-    """
-    G_avg = m_flow_eff / A_flow_eff  # kg/(m^2 s)
+    """Average mass velocity G = effective mass flow / flow area (kg/m^2 s)."""
+    G_avg = m_flow_eff / A_flow_eff
     print(f"Average mass velocity G_avg: {G_avg:.2f} kg/(m^2 s)")
-    
     return G_avg
 
 
 # 3) COOLANT SPECIFIC ENTHALPY
 def coolant_specific_enthalpy(z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_active, T_in):
     """
-    Profilo di entalpia specifica del refrigerante lungo z (integrale analitico
-    della distribuzione chopped cosine).
-    Ritorna: h_profile (J/kg), W_hc (kg/s, portata per sub-canale).
+    Coolant specific enthalpy profile along z (analytical integral of the
+    chopped cosine distribution).
+    Returns: h_profile (J/kg), W_hc (kg/s, sub-channel mass flow rate).
     """
-    W_hc = G_avg * A_c  # kg/s (portata per canale)
-    A_fuel = np.pi / 4 * D_pellet**2  # m^2 (area del combustibile)
-    
+    W_hc = G_avg * A_c  # kg/s (sub-channel mass flow rate)
+    A_fuel = np.pi / 4 * D_pellet**2  # m^2 (fuel cross-section)
+
     h_in = CP.PropsSI('H', 'T', T_in + 273.15, 'P', p_sys, 'Water')  # J/kg
 
-    # 1.0267 = 1/0.974: q_v_max e' basato sul 97.4% della potenza (energia nel
-    # fuel), ma il refrigerante riceve la potenza totale (energia trasferita
-    # al canale), quindi qui si "ripristina" il 100%.
+    # 1.0267 = 1/0.974: q_v_max is based on 97.4% of the power (energy in the
+    # fuel), but the coolant receives the total power (energy transferred to
+    # the channel), so the full 100% is "restored" here.
     h_profile = h_in + 1.0267 * (q_v_max * A_fuel * H_e) / (W_hc * np.pi) * (np.sin(np.pi * z / H_e) + np.sin(np.pi * H_active / 2 / H_e))
-    
+
     return h_profile, W_hc
 
 
 # 4) TEMPERATURE PROFILE
 def temperature_profile(h_profile, p_sys):
     """
-    Profilo di temperatura del refrigerante (°C) da h e p, clampato a T_sat.
-    Ritorna: T_profile (°C), first_sat_idx (indice del primo nodo a saturazione).
+    Coolant temperature profile (°C) from h and p, clamped at T_sat.
+    Returns: T_profile (°C), first_sat_idx (index of the first saturated node).
     """
     T_profile = CP.PropsSI('T', 'H', h_profile, 'P', p_sys, 'Water') - 273.15  # °C
-    # La temperatura non può superare quella di saturazione
-    T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water') - 273.15 # °C
+    # The temperature cannot exceed the saturation value
+    T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water') - 273.15  # °C
     T_profile = np.minimum(T_profile, T_sat)
-    
-    # calcolo la coordinata z in cui T_profile raggiunge T_sat
+
     sat_indices = np.where(T_profile >= T_sat)[0]
     first_sat_idx = sat_indices[0] if len(sat_indices) > 0 else None
-    
+
     return T_profile, first_sat_idx
+
 
 # 5) EQUILIBRIUM QUALITY PROFILE
 def equilibrium_quality_profile(h_profile, p_sys):
     """
-    Calcola il profilo di titolo di equilibrio (equilibrium quality) lungo l'asse z.
-    x_eq = (h - h_ls) / (h_vs - h_ls)
+    Equilibrium quality profile along z: x_eq = (h - h_ls) / (h_vs - h_ls).
+    Returns the clamped profile (>= 0), the full profile and H_fg.
     """
-    h_ls = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water')  # Entalpia liquido saturo
-    h_vs = CP.PropsSI('H', 'P', p_sys, 'Q', 1, 'Water')  # Entalpia vapore saturo
-    H_fg = h_vs - h_ls  # Calore latente di vaporizzazione
+    h_ls = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water')  # saturated liquid enthalpy
+    h_vs = CP.PropsSI('H', 'P', p_sys, 'Q', 1, 'Water')  # saturated vapour enthalpy
+    H_fg = h_vs - h_ls  # latent heat of vaporisation
     x_eq_completo = (h_profile - h_ls) / (h_vs - h_ls)
-    x_eq_profile = np.maximum(0, x_eq_completo)  # Forza a 0 i valori negativi
-    return x_eq_profile,x_eq_completo, H_fg
+    x_eq_profile = np.maximum(0, x_eq_completo)  # force negative values to 0
+    return x_eq_profile, x_eq_completo, H_fg
+
 
 # 6) CALCULATION OF THE OUTER CLADDING TEMPERATURE
-
 def safe_props(prop, T_K, P, T_sat_K):
-    """Proprietà CoolProp robusta: vicino/oltre saturazione usa il liquido saturo."""
+    """Robust CoolProp property: near/above saturation use the saturated liquid."""
     try:
         if T_K >= T_sat_K - 0.01:
             return CP.PropsSI(prop, 'P', P, 'Q', 0, 'Water')
@@ -116,164 +106,158 @@ def safe_props(prop, T_K, P, T_sat_K):
 
 def T_outer_cladding_profile(T_sat_K, G_avg, D_eq, T_profile, p_sys, C, q_flux):
     """
-    Temperatura cladding esterna: Dittus-Boelter monofase vs Jens-Lottes (boiling),
-    si prende il minimo. Ritorna anche l'indice di ONB.
+    Outer cladding temperature: single-phase Dittus-Boelter vs Jens-Lottes
+    (boiling), the minimum is taken. Also returns the ONB index.
     """
-    # Vettorizzazione iterando sui valori di T_profile (con conversione in Kelvin)
+    # Properties evaluated node by node (T converted to Kelvin)
     mu_profile = np.array([safe_props('V', T + 273.15, p_sys, T_sat_K) for T in T_profile])
     k_profile = np.array([safe_props('L', T + 273.15, p_sys, T_sat_K) for T in T_profile])
     cp_profile = np.array([safe_props('C', T + 273.15, p_sys, T_sat_K) for T in T_profile])
-    
-    # Calcolo dei numeri adimensionali
+
+    # Dimensionless numbers
     Re_profile = (G_avg * D_eq) / mu_profile
     Pr_profile = (cp_profile * mu_profile) / k_profile
-    
-    # Correlazione di Dittus-Boelter (riscaldamento del fluido, esponente Pr = 0.4)
+
+    # Dittus-Boelter correlation (fluid heating, Pr exponent = 0.4)
     Nu_profile = C * (Re_profile**0.8) * (Pr_profile**0.4)
-    
-    # Calcolo di h
     h_single_phase = (Nu_profile * k_profile) / D_eq
-    
-    # Consideriamo boiling con Jens-Lottes
-    q_flux_MW = q_flux*1e-6  # MW/m^2
-    p_sys_bar = p_sys / 1e5  # bar
-    T_co_JL = (T_sat_K - 273.15) + 25*(q_flux_MW)**0.25 * np.exp(-p_sys_bar/62) # °C (temperatura di ebollizione con superheat)
 
-    # confronto con la temperatura della single phase
-    T_co_SP = T_profile + q_flux / h_single_phase  # °C (temperatura di ebollizione con superheat)
+    # Boiling with Jens-Lottes (q in MW/m^2, p in bar, T in °C)
+    q_flux_MW = q_flux * 1e-6
+    p_sys_bar = p_sys / 1e5
+    T_co_JL = (T_sat_K - 273.15) + 25*(q_flux_MW)**0.25 * np.exp(-p_sys_bar/62)  # °C
 
-    # combino i due profili prendendo il minimo tra i due (ovvero ho cambio di fase)
+    # Single-phase wall temperature
+    T_co_SP = T_profile + q_flux / h_single_phase  # °C
+
+    # Combine the two profiles taking the minimum (i.e. phase change occurs)
     T_co = np.minimum(T_co_JL, T_co_SP)
 
-    # trovo l'indice in cui la curva Jens-Lottes diventa minore della Single Phase (punto di ONB - Onset of Nucleate Boiling)
+    # ONB index: where Jens-Lottes drops below the single-phase curve
     onb_indices = np.where(T_co_JL < T_co_SP)[0]
     first_onb_idx = onb_indices[0] if len(onb_indices) > 0 else None
-    
+
     return h_single_phase, T_co, T_co_JL, T_co_SP, first_onb_idx
 
-# bubble detachment
-def detachment(h_l, q_D, T_sat_K, T_cool, zz):
-    # converto T_sat in Celsius se T_cool e' in Celsius
-    T_sat_C = T_sat_K - 273.15
-    
-    # T detachment: T_l è un array se q_D e h_l lo sono
-    T_l = T_sat_C - q_D / (5 * h_l)
 
-    # cerco gli indici in cui la condizione è soddisfatta
-    # T_cool > T_l
+def detachment(h_l, q_D, T_sat_K, T_cool, zz):
+    """
+    Bubble detachment point (Griffith model): occurs where T_cool > T_l,
+    with T_l = T_sat - q_D/(5*h_l).
+    Returns (T_det, z_det, idx) or (None, None, None) if it does not occur.
+    """
+    T_sat_C = T_sat_K - 273.15
+    T_l = T_sat_C - q_D / (5 * h_l)
     detachment_indices = np.where(T_cool > T_l)[0]
-    
+
     if len(detachment_indices) > 0:
-        # Prendo il primo punto in cui si verifica il distacco
         first_detachment_idx = detachment_indices[0]
         T_det = T_cool[first_detachment_idx]
         z_det = zz[first_detachment_idx]
         return T_det, z_det, first_detachment_idx
-    else:
-        # Nessun distacco lungo il canale
-        return None, None, None
+    return None, None, None
+
 
 def flow_quality_two_phase(h_l, T_sat_K, T_cool, index_det, H_fg, p_sys, q_flux, zz, z_det, p_H, W):
-    # calcoliamo ogni contributo (evaporation, convection e heat transfer)
-    
-    # taglio i vettori dal punto di detachment alla fine
+    """
+    Flow quality x(z) after detachment (Bowring-Rouhani model):
+    x = integral of p_H*(q - q_SP) / (H_fg*W*(1+eps)) from z_det to z.
+    Computed with Rouhani eps (eps_R) and Bowring eps (eps_B = 1.6).
+    """
+    # Slice the vectors from the detachment point to the end
     h_l = h_l[index_det:]
     T_cool = T_cool[index_det:]
 
-    # bubbles heat transfer
+    # Single-phase heat flux contribution
     T_sat_C = T_sat_K - 273.15  # °C
-    q_SP = h_l * (T_sat_C - T_cool)  # W/m^2 (heat flux per single phase)
+    q_SP = h_l * (T_sat_C - T_cool)  # W/m^2
 
-    # Densità vapore saturo (Q = 1) - Costante a pressione di saturazione
-    rho_g_sat = CP.PropsSI('D', 'T', T_sat_K, 'Q', 1, 'Water')
-    i_l_sat = CP.PropsSI('H', 'T', T_sat_K, 'Q', 0, 'Water')  # J/kg (entalpia liquido saturo)
-    # Densità liquido (in funzione della temperatura locale T_cool)
-    rho_l = np.array([safe_props('D', T + 273.15, p_sys, T_sat_K) for T in T_cool])
-    i_l = np.array([safe_props('H', T + 273.15, p_sys, T_sat_K) for T in T_cool])  # J/kg (entalpia liquido a T_cool)
-    # ROUHANI
-    eps_R = rho_l /(rho_g_sat*H_fg)*(i_l_sat - i_l)  
-    # BOWRING
-    eps_B = 1.6 
-    
-    # helper elementare per l'integrale
+    rho_g_sat = CP.PropsSI('D', 'T', T_sat_K, 'Q', 1, 'Water')   # saturated vapour density
+    i_l_sat = CP.PropsSI('H', 'T', T_sat_K, 'Q', 0, 'Water')     # J/kg, saturated liquid enthalpy
+    rho_l = np.array([safe_props('D', T + 273.15, p_sys, T_sat_K) for T in T_cool])  # liquid density at T_cool
+    i_l = np.array([safe_props('H', T + 273.15, p_sys, T_sat_K) for T in T_cool])    # J/kg, liquid enthalpy at T_cool
+    eps_R = rho_l / (rho_g_sat*H_fg) * (i_l_sat - i_l)  # ROUHANI
+    eps_B = 1.6                                         # BOWRING
+
     def calc_x_z(eps_arr):
         q_flux_cut = q_flux[index_det:]
         integr = p_H * (q_flux_cut - q_SP) / (H_fg * W * (1 + eps_arr))
         z_int = zz[index_det:]
-        x_z_parziale = cumulative_trapezoid(integr, z_int, initial=0)
-        
-        x_z_totale = np.zeros_like(zz)
-        x_z_totale[index_det:] = x_z_parziale
-        return x_z_totale
+        x_z_partial = cumulative_trapezoid(integr, z_int, initial=0)
 
-    # calcolo la quality per entrambi i modelli                                                                                                                 
+        x_z_total = np.zeros_like(zz)
+        x_z_total[index_det:] = x_z_partial
+        return x_z_total
+
     x_flow_R = calc_x_z(eps_R)
     x_flow_B = calc_x_z(eps_B)
-    
+
     return x_flow_R, x_flow_B
+
 
 # VOID FRACTION
 def void_fraction(p_sys, D_eq, zz, i_ONB, i_Det, G_avg, X_flow):
+    """
+    Void fraction profile in 3 regions:
+      - single phase (z < ONB): alpha = 0
+      - ONB -> detachment: linear from 0 to alpha_D (Maurer + Bowring/Rouhani)
+      - after detachment: Zuber-Findlay (Collier-Thome) and Fauske/Moody slip ratio
+    Returns the 3 profiles: Zuber-Findlay, Fauske, Moody.
+    """
     void_fraction_profile = np.zeros_like(zz)
-    # diverse zone: single phase --> 0, ONB-D --> linear, D--> curva
-    # tratto lineare: MAURER CORRELATION
-    # Nelle formule empiriche come Rouhani la pressione di sistema è in MPa. 
+    # Void fraction at detachment from Maurer (alpha = 4*delta/D_h)
     p_bar = p_sys / 1e5  # bar
-    R_d = 2.37e-3/p_bar**0.237 # m (raggio di una bolla ROUHANI)
-    bubble_layer_thickness = 0.0666 * R_d # m (spessore dello strato di bolle BOWRING)
-    void_fraction_D = 4*bubble_layer_thickness / D_eq # void fraction at Detachment (MAURER)
-    # tratto lineare tra ONB e Detachment
+    R_d = 2.37e-3 / p_bar**0.237              # m (bubble radius, ROUHANI)
+    bubble_layer_thickness = 0.0666 * R_d     # m (bubble layer thickness, BOWRING)
+    void_fraction_D = 4*bubble_layer_thickness / D_eq  # void fraction at detachment (MAURER)
+    # Linear segment between ONB and detachment
     void_fraction_profile[i_ONB:i_Det] = np.linspace(0, void_fraction_D, i_Det - i_ONB)
 
-    # post-detachment: 
-    # 1) ZUBER FINDLAY : uso solo COLLIER-THORNE per limite su p_sys
+    # Post-detachment, model 1: ZUBER-FINDLAY (Collier-Thome, valid in this p range)
     C_0 = 1.13
     C_1 = 0.5 * (1.18 + 1.4)
     rho_g_sat = CP.PropsSI('D', 'P', p_sys, 'Q', 1, 'Water')
     rho_l_sat = CP.PropsSI('D', 'P', p_sys, 'Q', 0, 'Water')
     sigma = CP.PropsSI('surface_tension', 'P', p_sys, 'Q', 0, 'Water')
     g = 9.81
-    
-    # Estraggo il titolo di vapore dal punto di distacco in poi
+
+    # Vapour quality from the detachment point onwards
     x = X_flow[i_Det:]
-    
-    # Termine di drift (drift velocity term)
+
     drift_term = (sigma * g * (rho_l_sat - rho_g_sat) / rho_l_sat**2)**0.25
-    
-    # Correlazione di Zuber-Findlay (Collier-Thome per bubbly flow)
     alpha_post_det = (x / rho_g_sat) / (C_0 * (x / rho_g_sat + (1 - x) / rho_l_sat) + C_1 * (1 / G_avg) * drift_term)
 
-    # NB: a z = z_det il titolo x = 0, quindi Z-F darebbe alpha = 0, generando
-    # una discontinuità con il tratto lineare che termina a alpha_D. Per garantire
-    # la continuità sommiamo alpha_D ("strato di bolle a parete" + flow void).
-    # Approssimazione conservativa: sovrastima leggermente alpha nel bulk.
+    # NB: at z = z_det the quality x = 0, so Z-F would give alpha = 0, creating
+    # a discontinuity with the linear segment ending at alpha_D. To ensure
+    # continuity alpha_D is added ("wall bubble layer" + flow void).
+    # Conservative approximation: slightly overestimates alpha in the bulk.
     alpha_post_det = void_fraction_D + alpha_post_det
 
-    # Inserisco i valori nel profilo totale
     void_fraction_profile_ZF = void_fraction_profile.copy()
     void_fraction_profile_ZF[i_Det:] = alpha_post_det
 
-    # 2) SLIP RATIO
-    S_F = (rho_l_sat / rho_g_sat)**0.5  # FAUSKE
-    S_M = (rho_l_sat / rho_g_sat)**(1/3)  # MOODY
-    
-    # Raccordo i modelli sommando la void_fraction_D (come per Z-F)
-    alpha_F = void_fraction_D + x/(x + (1-x)*rho_g_sat/rho_l_sat * S_F) 
+    # Post-detachment, model 2: SLIP RATIO
+    S_F = (rho_l_sat / rho_g_sat)**0.5     # FAUSKE
+    S_M = (rho_l_sat / rho_g_sat)**(1/3)   # MOODY
+
+    # Matched by adding void_fraction_D (as for Z-F)
+    alpha_F = void_fraction_D + x/(x + (1-x)*rho_g_sat/rho_l_sat * S_F)
     alpha_M = void_fraction_D + x/(x + (1-x)*rho_g_sat/rho_l_sat * S_M)
 
     void_fraction_profile_F = void_fraction_profile.copy()
-    void_fraction_profile_M = void_fraction_profile.copy()  
+    void_fraction_profile_M = void_fraction_profile.copy()
     void_fraction_profile_F[i_Det:] = alpha_F
     void_fraction_profile_M[i_Det:] = alpha_M
-    
+
     return void_fraction_profile_ZF, void_fraction_profile_F, void_fraction_profile_M
-    
+
+
 # 7) T INNER CLADDING TEMPERATURE PROFILE
 def T_inner_cladding_profile(T_co, q_vol, A_f, D_ci, D_co):
     """
-    T cladding interna da conduzione in cilindro cavo con k_Zr = A + B*T:
-    integrando, A*(T_ci-T_co) + B/2*(T_ci^2-T_co^2) = q_v*A_f/(2pi)*ln(D_co/D_ci).
-    Equazione quadratica in T_ci, si prende la radice fisica positiva.
+    Inner cladding temperature from hollow-cylinder conduction with k_Zr = A + B*T:
+    integrating, A*(T_ci-T_co) + B/2*(T_ci^2-T_co^2) = q_v*A_f/(2pi)*ln(D_co/D_ci).
+    Quadratic equation in T_ci, the positive physical root is taken.
     """
     T_inner = np.zeros_like(T_co)
     A = 11.45      # k_Zr = A + B*T  (W/m°C), WCAP 3269-4-1
@@ -289,344 +273,301 @@ def T_inner_cladding_profile(T_co, q_vol, A_f, D_ci, D_co):
         c = -rhs - (A * T_co_loc + B/2 * T_co_loc**2)
         delta = b**2 - 4*a*c
         if delta < 0:
-            raise ValueError("Delta negativo, nessuna soluzione reale per T_inner")
+            raise ValueError("Negative discriminant, no real solution for T_inner")
         T_inner[i] = (-b + np.sqrt(delta)) / (2*a)
 
     return T_inner
 
+
 # 8) T PELLET SURFACE TEMPERATURE PROFILE
 def pellet_thermal_conductivity(T):
-    """ Calcola la conducibilità termica del pellet di UO2. T in °C, restituisce W/m*K """
-    
-    k_UO2 = 1/(11.8+0.0238*T) + 8.775e-13*T**3 
-    return k_UO2 * 100  # W/m*K (conversione da W/cm*K a W/m*K)
+    """UO2 pellet thermal conductivity (Westinghouse). T in °C -> W/(m·K)."""
+    k_UO2 = 1/(11.8+0.0238*T) + 8.775e-13*T**3  # W/(cm·K)
+    return k_UO2 * 100  # W/(m·K)
 
-# calculate the GAP CONDUCTANCE h_g_T
+
+# --- Gap conductance: thermal expansion, elastic deformation, h_g_T ---
 def thermal_expansion(D_Ta, T_mean, T_amb, component):
-    """ Calcola l'espansione termica del diametro. """
-    def alpha(T): # T in °C, restituisce 1/°C
+    """Diameter change due to thermal expansion (fuel or cladding)."""
+    def alpha(T):  # T in °C, returns 1/°C
         if component == 'fuel':
-            return 7.87e-6 + 3.9e-9*T # 1/°C 
+            return 7.87e-6 + 3.9e-9*T
         elif component == 'cladding':
-            return 5.62e-6 + 3.162e-9*T # 1/°C 
+            return 5.62e-6 + 3.162e-9*T
         else:
-            raise ValueError("Componente sconosciuto")
+            raise ValueError("Unknown component")
     return D_Ta*alpha(T_mean)*(T_mean - T_amb)
 
+
 def elastic_deformation(r_ci, r_co, T_c, p_i, p_e):
-    """ Calcola la deformazione elastica del raggio. """
+    """Elastic radial deformation of the cladding due to the pressure difference."""
     gamma = r_co/r_ci
     nu = 0.43
     def young_modulus(T):
-        return 1.148e11 - 5.99e7 * T  # Pa (modulo di Young in funzione della temperatura)
-    E = young_modulus(T_c + 273.15)  
+        return 1.148e11 - 5.99e7 * T  # Pa (Young's modulus vs temperature)
+    E = young_modulus(T_c + 273.15)
     delta_r_ci = (r_ci / (E * (gamma**2 - 1))) * (p_i * ((1 - nu) + (1 + nu) * gamma**2) - 2 * gamma**2 * p_e)
     return delta_r_ci
 
+
 def calculate_gap_conductance(delta0, D_pellet, D_in_clad, D_out_clad, T_amb, T_c_avg, p_i, p_sys, T_fuel_avg, T_f_S, T_ci):
-    """ Calcola la gap conductance iterativamente tenendo conto di espansione e radiazioni. """
-    # 1. Espansione e deformazione (variano lo spessore del gap)
-    delta_f = thermal_expansion(D_pellet, T_fuel_avg, T_amb, 'fuel') 
+    """Total gap conductance accounting for expansion, deformation and radiation."""
+    # 1. Expansion and deformation (they change the gap thickness)
+    delta_f = thermal_expansion(D_pellet, T_fuel_avg, T_amb, 'fuel')
     delta_cl = thermal_expansion(D_in_clad, T_c_avg, T_amb, 'cladding')
     delta_def = elastic_deformation(D_in_clad/2, D_out_clad/2, T_c_avg, p_i, p_sys)
-    
-    # Gap finale: delta_f riduce il gap, delta_cl lo allarga, delta_def (compressione) lo riduce o allarga
-    delta = delta0 - delta_f/2 + delta_cl/2 + delta_def
-    
-    # Controllo contatto
-    if np.any(delta <= 0):
-        print("Attenzione: Contatto tra pellet e cladding rilevato!")
-        # Qui potresti aggiungere un termine di 'contact conductance' (h_contact) se necessario
-        
 
-    # 2. Conducibilità del gas (He) in funzione della media tra superficie pellet ed interno guaina
+    # Final gap: delta_f shrinks it, delta_cl widens it, delta_def shrinks/widens it
+    delta = delta0 - delta_f/2 + delta_cl/2 + delta_def
+
+    if np.any(delta <= 0):
+        print("Warning: pellet-cladding contact detected!")
+
+    # 2. Gas (He) conductivity at the mean of pellet surface and inner cladding
     T_gas_avg_K = (T_f_S + T_ci) / 2 + 273.15
     k_gas = 0.1763e-2 * T_gas_avg_K**0.77163  # W/mK
-    
-    # Coefficiente conduttivo del gas con jump distance
+
+    # Gas conductive coefficient with jump distance
     h_gap_gas = k_gas / (delta + 2.54e-5)
-    
-    # 3. Coefficiente radiativo
+
+    # 3. Radiative coefficient (emissivity = 1 -> upper bound for h_rad)
     sigma = 5.67e-8
     T_f_S_K = T_f_S + 273.15
     T_ci_K = T_ci + 273.15
-    
-    # Sfrutto l'approssimazione o la formula completa per evitare 0/0
     h_rad_val = sigma * (T_f_S_K**2 + T_ci_K**2) * (T_f_S_K + T_ci_K)
 
     return h_gap_gas + h_rad_val, delta
 
 
 def calculate_T_pellet_surface_iterative(T_ci, T_co, q_vol_profile, A_fuel, D_pellet, D_in_clad, D_out_clad, T_amb, p_sys, delta0):
-    # Inizializzazione array (si assume T_ci sia un numpy array derivato dai punti lungo z)
-    T_f_S = T_ci.copy() + 100.0  # Ipotesi di partenza migliorata
-    T_fuel_avg = T_f_S + 200.0   # Ipotesi di partenza per T_avg del pellet
+    """
+    Pellet surface temperature: T_f_S = T_ci + q''_f / h_g_T.
+    Iterative because h_g_T (gap conductance) and q''_f depend on the pellet
+    temperatures, which are initially unknown.
+    Returns: T_f_S, h_tot, delta (gap), T_center (estimate), n. of iterations.
+    """
+    T_f_S = T_ci.copy() + 100.0  # initial guess
+    T_fuel_avg = T_f_S + 200.0   # initial guess for the pellet mean temperature
     T_c_avg = (T_ci + T_co) / 2
-    
-    p_i = 3e6  # Pa (Pressione interna ipotizzata o fornita)
-    
+
+    p_i = 3e6  # Pa (fill-gas internal pressure)
     tol = 1e-3
     max_iter = 1000
-    
+
     for iteration in range(max_iter):
         T_f_S_old = T_f_S.copy()
-        
-        # 1. Calcolo/Aggiornamento delle proprietà del pellet basate sulle temp. del passo precedente
+
+        # 1. Pellet properties from the previous-step temperatures
         k_pellet = pellet_thermal_conductivity(T_fuel_avg)
         T_center = T_f_S_old + (q_vol_profile * A_fuel) / (4 * np.pi * k_pellet)
-        T_fuel_avg = T_f_S_old + (q_vol_profile * A_fuel) / (8 * np.pi * k_pellet) # Stima T media teorica
-        
-        # 2. Ricalcolo Gap Conductance e Gap effettivo passano T pareti per il gas
+        T_fuel_avg = T_f_S_old + (q_vol_profile * A_fuel) / (8 * np.pi * k_pellet)
+
+        # 2. Gap conductance and effective gap
         h_tot, delta = calculate_gap_conductance(
-            delta0, D_pellet, D_in_clad, D_out_clad, 
+            delta0, D_pellet, D_in_clad, D_out_clad,
             T_amb, T_c_avg, p_i, p_sys, T_fuel_avg, T_f_S_old, T_ci
         )
-        
-        # 3. Nuova temperatura superficiale del pellet imposta dal flusso
-        # q'' = q_vol * V_f / A_superficiale = q_vol * A_fuel / (pi * D_pellet)
+
+        # 3. New surface temperature imposed by the flux: q'' = q_vol * A_fuel / (pi * D_pellet)
         heat_flux_pellet = (q_vol_profile * A_fuel) / (np.pi * D_pellet)
         T_f_S_new = T_ci + heat_flux_pellet / h_tot
-        
-        # 4. Verifica convergenza
+
+        # 4. Convergence check
         error = np.linalg.norm(T_f_S_new - T_f_S_old) / np.linalg.norm(T_f_S_old)
-        if error < tol:
-            print(f"Convergenza raggiunta dopo {iteration} iterazioni.")
-            T_f_S = T_f_S_new
-            break
-            
-        # Rilassamento forte (5% nuovo, 95% vecchio) per eliminare l'oscillazione elastica del gap
         T_f_S = T_f_S_new
+        if error < tol:
+            print(f"Convergence reached after {iteration} iterations.")
+            break
     else:
-        print("ATTENZIONE: max_iter raggiunto, la temperatura della superficie del pellet non è del tutto a convergenza!")
+        print("WARNING: max_iter reached, the pellet surface temperature is not fully converged!")
 
     if np.any(delta <= 0):
-        print("ATTENZIONE: Contatto pellet-cladding rilevato a convergenza!")
-        
+        print("WARNING: pellet-cladding contact detected at convergence!")
+
     return T_f_S, h_tot, delta, T_center, iteration
 
 
 # 9) FUEL CENTER LINE TEMPERATURE
 def calculate_fuel_centerline_temperature(T_f_S_profile, q_vol_profile, A_fuel):
+    """
+    Fuel centerline temperature, solved node by node from the conductivity
+    integral equation: int_{T_S}^{T_CL} k_UO2 dT = q' * f_robertson / (4 pi),
+    where f_robertson is the centerline flux depression factor.
+    """
+    # Analytical integral of k_UO2 (Westinghouse): k = 100*[1/(11.8+0.0238T) + 8.775e-13 T^3]
+    def integral_k(T):
+        return (100 / 0.0238) * np.log(11.8 + 0.0238 * T) + 100 * (8.775e-13 / 4) * (T**4)
+
+    f_robertson = 0.965
     T_centerline = np.zeros_like(T_f_S_profile)
-    
-    # Fattore di depressione del flusso (di solito 1 se non specificato altrimenti)
-    f_robertson = 0.965 
-    
+
     for i in range(len(T_f_S_profile)):
         T_surface_loc = T_f_S_profile[i]
-        q_vol_loc = q_vol_profile[i]
-        
-        # Potenza lineare q' = q_vol * A_fuel
-        q_prime = q_vol_loc * A_fuel
-        
-        # Il lato destro dell'equazione (RHS) = q' * f / (4 * pi)
-        RHS = (q_prime * f_robertson) / (4 * np.pi)
-        
-        # Definiamo l'integrale analitico della conducibilità del pellet (Slide 47)
-        # k(T) = 100 * [ 1/(11.8+0.0238*T) + 8.775e-13*T**3 ]  (il 100 converte in W/mK)
-        # L'integrale indefinito K(T) = int k(T) dT :
-        def integral_k(T):
-            term1 = (100 / 0.0238) * np.log(11.8 + 0.0238 * T)
-            term2 = 100 * (8.775e-13 / 4) * (T**4)
-            return term1 + term2
-        
-        # L'equazione da azzerare: Integrale(T_center) - Integrale(T_surface) - RHS = 0
+        RHS = (q_vol_profile[i] * A_fuel * f_robertson) / (4 * np.pi)
+
+        # Root of: integral_k(T_CL) - integral_k(T_surface) - RHS
         def objective_function(T_CL_guess):
             return integral_k(T_CL_guess) - integral_k(T_surface_loc) - RHS
-            
-        # Initial guess per fsolve (es. superficie + 500 gradi)
-        initial_guess = T_surface_loc + 500.0
-        
-        # Risolvo per il singolo nodo
-        T_CL_sol = fsolve(objective_function, initial_guess)[0]
-        T_centerline[i] = T_CL_sol
-        
+
+        T_centerline[i] = fsolve(objective_function, T_surface_loc + 500.0)[0]
+
     return T_centerline
 
 
-def solve_pellet_radial_temperature(z,q_vol_profile,T_surface,R_pellet,pellet_thermal_conductivity,Nr=100,tol=1e-6,max_iter=500,alpha=0.5):
+def solve_pellet_radial_temperature(z, q_vol_profile, T_surface, R_pellet, pellet_thermal_conductivity, Nr=100, tol=1e-6, max_iter=500, alpha=0.5):
     """
-    Risolve la conduzione radiale nel pellet per ogni quota z.
+    Solves radial conduction in the pellet at each axial location z.
 
-    Equazione:
+    Equation:
         1/r d/dr ( r k(T) dT/dr ) + q'''(z) = 0
-
     BC:
-        dT/dr = 0          a r = 0
-        T = T_surface(z)   a r = R_pellet
+        dT/dr = 0          at r = 0
+        T = T_surface(z)   at r = R_pellet
     """
-    f_rob = 0.965 # Robertson factor
-    q_vol_profile = q_vol_profile*f_rob
+    f_rob = 0.965  # Robertson factor
+    q_vol_profile = q_vol_profile * f_rob
     r = np.linspace(0, R_pellet, Nr)
     dr = r[1] - r[0]
 
     Nz = len(z)
-
     T = np.zeros((Nr, Nz))
     T_center = np.zeros(Nz)
 
     for iz in range(Nz):
-
         q = q_vol_profile[iz]
         T_s = T_surface[iz]
-
-        # Guess iniziale
-        T_old = np.ones(Nr) * T_s
+        T_old = np.ones(Nr) * T_s  # initial guess
 
         for iteration in range(max_iter):
-
             k = pellet_thermal_conductivity(T_old)
 
             A = np.zeros((Nr, Nr))
             b = np.zeros(Nr)
 
-            # -------------------------
-            # BC centro: dT/dr = 0
-            # T[0] = T[1]
-            # -------------------------
+            # Centre BC: dT/dr = 0  -> T[0] = T[1]
             A[0, 0] = 1.0
             A[0, 1] = -1.0
             b[0] = 0.0
 
-            # -------------------------
-            # Nodi interni
-            # -------------------------
+            # Internal nodes
             for i in range(1, Nr - 1):
-
                 rp = r[i] + dr / 2
                 rm = r[i] - dr / 2
-
                 kp = 0.5 * (k[i] + k[i + 1])
                 km = 0.5 * (k[i] + k[i - 1])
 
                 A[i, i - 1] = rm * km / dr**2
                 A[i, i] = -(rp * kp + rm * km) / dr**2
                 A[i, i + 1] = rp * kp / dr**2
-
                 b[i] = -q * r[i]
 
-            # -------------------------
-            # BC superficie: T(R) = T_s
-            # -------------------------
+            # Surface BC: T(R) = T_s
             A[-1, -1] = 1.0
             b[-1] = T_s
 
             T_calc = np.linalg.solve(A, b)
 
-            # Rilassamento
+            # Under-relaxation
             T_new = alpha * T_calc + (1 - alpha) * T_old
-
             error = np.max(np.abs(T_new - T_old))
-
             if error < tol:
                 break
-
             T_old = T_new.copy()
 
         T[:, iz] = T_new
         T_center[iz] = T_new[0]
 
     return r, T, T_center
-        
+
 
 # 10) CRITICAL FLUX BY W3 AND GRID FACTOR
+def critical_flux_uniform(G_avg, D_eq, p_sys, h_in, h_lsat, x_c, L_active_in):
+    """
+    Uniform critical heat flux: W-3 correlation (15x15) with the 0.88 correction
+    for the 17x17 bundle, multiplied by the grid spacer factor Fs.
+    Returns: qc_w3_17 (corrected W-3), qc_eu (W-3 + grid factor), in kW/m^2.
+    """
+    # --- W-3 (units: p in MPa, G in kg/m^2 s, i in kJ/kg, D_h in m) ---
+    p_mpa = p_sys / 1e6
+    t1 = (2.022 - 0.06238*p_mpa)
+    t2 = (0.1722 - 0.01427*p_mpa) * np.exp((18.177 - 0.5987*p_mpa)*x_c)
+    t3 = (0.1484 - 1.596*x_c + 0.1729*x_c*np.abs(x_c))*(2.326*G_avg) + 3271
+    t4 = (1.157 - 0.869*x_c)
+    t5 = (0.2664 + 0.8357*np.exp(-124.1*D_eq))
+    t6 = (0.8285 + 0.0003413*(h_lsat - h_in))
+    qc_w3_15 = (t1+t2)*t3*t4*t5*t6      # kW/m^2
+    qc_w3_17 = qc_w3_15 * 0.88          # 15x15 -> 17x17 correction
 
-# Uniform critical heat flux 
-def critical_flux_uniform(G_avg, D_eq, p_sys,h_in,h_lsat,x_c, L_active_in):
-       # Uniform Flux
-    p_mpa = p_sys/1e6  # Converti Pa in MPa
-    t1 = (2.022-0.06238*p_mpa)
-    t2 = (0.1722-0.01427*p_mpa)*np.exp((18.177-0.5987*p_mpa)*x_c)
-    t3 = (0.1484-1.596*x_c+0.1729*x_c*np.abs(x_c))*(2.326*G_avg)+3271
-    t4 = (1.157-0.869*x_c)
-    t5 = (0.2664+0.8357*np.exp(-124.1*D_eq))
-    t6 = (0.8285+0.0003413*(h_lsat-h_in))
-    qc_w3_15 = (t1+t2)*t3*t4*t5*t6 # kW/m^2 (critical heat flux per W3)
-    qc_w3_17 = qc_w3_15*0.88 # correzione per passare da 15x15 a 17x17
-
-    p_psi = p_sys*0.000145038  # Converti Pa in psi
-    G_lb = G_avg*737.338  # Converti kg/(m^2 s) in lb/(ft^2 hr)
-
-    #da verificare e provare con metodo della prof (z' che parte da z onb)
-    #L_in_ft = (z+(z[-1]-z[0])/2)*3.28084  # Converti m in ft (posizione media lungo z)
-    L_ft = L_active_in / 12  # ft (lunghezza attiva del core, 1 ft = 12 in)
+    # --- Grid spacer factor Fs (units: p in psi, L in ft, G in lb/ft^2 hr) ---
+    p_psi = p_sys * 0.000145038
+    G_lb = G_avg * 737.338
+    L_ft = L_active_in / 12
     alpha = 0.038
 
-    #da controllare: consideriamo Ls(in) a 20 e Ks= 0.066
-    # calcolo L_s come rapporto di L_actiove e N_grids (numero di griglie per l'interpolazione)
+    # Ks from the table as a function of L_s = active length / n. of grids.
+    # L_s = 16.8 in falls below the table range [20, 32] in -> linear extrapolation.
     N_grids = 10
-    L_s = L_active_in/N_grids # inches
-    # da tabella facciamo interpolazione (valori in ordine crescente di L_s);
-    # L_s = 16.8 ft è fuori dal range [20, 32], quindi serve estrapolazione lineare
-    L_s_vect = np.array([20, 26, 32])  # ft
+    L_s = L_active_in / N_grids  # inches
+    L_s_vect = np.array([20, 26, 32])      # inches (increasing)
     Ks = np.array([0.066, 0.046, 0.027])
     Ks_interp = interp1d(L_s_vect, Ks, kind='linear', fill_value='extrapolate')(L_s)
 
-    Fs = (p_psi/225.896)**0.5*(1.445-0.0371*L_ft)*(np.exp((x_c+0.2)**2)-0.73)+Ks_interp*G_lb/1e6*(alpha/0.019)**0.35
-    qc_eu = qc_w3_17*Fs  # kW/m^2 (critical heat flux corretto con il fattore di griglia)
+    Fs = (p_psi/225.896)**0.5*(1.445-0.0371*L_ft)*(np.exp((x_c+0.2)**2)-0.73) + Ks_interp*G_lb/1e6*(alpha/0.019)**0.35
+    qc_eu = qc_w3_17 * Fs
     return qc_w3_17, qc_eu
 
-# non uniform critical heat flux 
+
 def critical_flux_non_uniform(qc_eu, G_avg, z_array, q_flux_array, z_ONB_idx, x_c):
-    ## Inizializziamo il vettore F(z) con valori pari a 1 (in monofase F = 1)
+    """
+    Non-uniform critical heat flux: Tong F-factor (Lin 1991 form).
+    F(z) = C * integral[ONB->z] q(z') exp(-C(z-z')) dz' / (q(z)*(1-exp(-C(z-z_ONB)))).
+    Upstream of ONB F = 1. Returns: F_profile, qc_NU = qc_eu / F.
+    """
     F_profile = np.ones_like(z_array)
-    G_avg_Mlb = G_avg * 737.338e-6  # Converti kg/(m^2 s) in Mlb/(ft^2 hr)
-    # La coordinata di partenza fissa
+    G_avg_Mlb = G_avg * 737.338e-6  # kg/(m^2 s) -> Mlb/(ft^2 hr)
     z_ONB = z_array[z_ONB_idx]
-    
-    # Iteriamo SOLO sui nodi successivi all'ONB
+
+    # F is evaluated only at the nodes downstream of ONB
     for i in range(z_ONB_idx + 1, len(z_array)):
-        
-        # 1. Il nostro "L_NU" è semplicemente la z attuale
-        z_corrente = z_array[i]
-        q_corrente = q_flux_array[i]
-        
-        # calcolo C (Tong: C in [in^-1] con G in Mlb/hr/ft^2)
-        C_in = 0.15*(1-x_c[i])**(4.31)/G_avg_Mlb**0.478  # in^-1
-        C = C_in / 0.0254  # m^-1 (per coerenza con z in metri)
-        
-        # 2. Isolo i vettori muti (z') dal punto ONB fino al punto corrente
+        z_current = z_array[i]
+        q_current = q_flux_array[i]
+
+        # Tong-Lin C: C in [in^-1] with G in Mlb/hr/ft^2 -> converted to [m^-1]
+        C_in = 0.15 * (1 - x_c[i])**4.31 / G_avg_Mlb**0.478
+        C = C_in / 0.0254
+
+        # Dummy vectors z' from ONB to the current node; trapezoidal integral
         z_prime = z_array[z_ONB_idx : i+1]
         q_prime = q_flux_array[z_ONB_idx : i+1]
-        
-        # 3. Definisco la funzione integranda
-        # q''(z') * exp(-C * (z_corrente - z'))
-        integranda = q_prime * np.exp(-C * (z_corrente - z_prime))
-        
-        # 4. Calcolo l'integrale con il metodo dei trapezi
-        # NB: in alcune versioni di scipy si usa np.trapz, in quelle nuove scipy.integrate.trapezoid
-        valore_integrale = trapezoid(integranda, z_prime)
-        
-        # 5. Calcolo il denominatore
-        # La distanza di ebollizione è (z_corrente - z_ONB)
-        denominatore = q_corrente * (1.0 - np.exp(-C * (z_corrente - z_ONB)))
-        
-        # 6. Assemblo il fattore F per questo nodo
-        F_profile[i] = (C / denominatore) * valore_integrale
-        
-    qc_NU = qc_eu / F_profile  # kW/m^2 (critical heat flux non uniformemente distribuito)
+        integrand = q_prime * np.exp(-C * (z_current - z_prime))
+        integral_value = trapezoid(integrand, z_prime)
+
+        denominator = q_current * (1.0 - np.exp(-C * (z_current - z_ONB)))
+        F_profile[i] = (C / denominator) * integral_value
+
+    qc_NU = qc_eu / F_profile  # kW/m^2
     return F_profile, qc_NU
+
 
 # 11) DNBR and MINIMUM DNBR
 def DNBR_calculation(q_flux, qc_nu):
     """
     DNBR(z) = q_c,NU(z) / q(z).
-    IMPORTANTE: q_flux e qc_nu devono avere la STESSA unita' (entrambi kW/m^2
-    oppure entrambi W/m^2). Nel main convertiamo q_flux/1e3 perche' qc_nu e'
-    in kW/m^2 mentre q_flux nel resto del codice e' in W/m^2.
+    IMPORTANT: q_flux and qc_nu must have the SAME unit (both kW/m^2 or both
+    W/m^2). In the main q_flux/1e3 is used because qc_nu is in kW/m^2 while
+    q_flux elsewhere is in W/m^2.
     """
-    DNBR = qc_nu / q_flux  # Dimensionless
+    DNBR = qc_nu / q_flux  # dimensionless
     MDNBR = np.min(DNBR)   # Minimum Departure from Nucleate Boiling Ratio
     return DNBR, MDNBR
-    
-    
+
+
 # ============================================================================
 # MAIN
 # ============================================================================
-
 if __name__ == "__main__":
 
-    # ------------------- INPUT: condizioni operative -------------------
+    # ------------------- INPUT: operating conditions -------------------
     P_nom = 3400e6  # W
     p_sys = psia_to_pa(2250)  # Pa
     n_rods = 157 * 264
@@ -638,7 +579,7 @@ if __name__ == "__main__":
     T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water')  # K
     T_in = fahrenheit_to_celsius(535)  # °C
 
-    # ------------------- INPUT: geometria (square array) ---------------
+    # ------------------- INPUT: geometry (square array) ----------------
     D_out_clad = inches_to_meters(0.374)
     H_active_in = 168
     H_active = inches_to_meters(H_active_in)
@@ -648,33 +589,33 @@ if __name__ == "__main__":
     D_pellet = inches_to_meters(0.3225)
     R_eq = inches_to_meters(119.7)
 
-    # ------------------- Derivate geometriche --------------------------
+    # ------------------- Derived geometry ------------------------------
     P_wet = np.pi * D_out_clad
     A_c = w**2 - np.pi/4 * D_out_clad**2
     D_eq = 4 * A_c / P_wet
     A_fuel = np.pi/4 * D_pellet**2
     R_pellet = D_pellet / 2
-    C = 0.042*w/D_out_clad - 0.024  # coefficiente Dittus-Boelter
+    C = 0.042*w/D_out_clad - 0.024  # Dittus-Boelter coefficient
 
-    # ------------------- Griglia assiale e radiale ---------------------
-    dzz = 0.0254/2  # mezzo pollice
+    # ------------------- Axial and radial grid -------------------------
+    dzz = 0.0254/2  # half an inch
     z = np.arange(-H_active/2, H_active/2 + dzz, dzz)
     r = np.arange(0, R_eq + dzz, dzz)
 
     # ===================================================================
-    # 1-2) Generazione di calore volumetrica e flusso termico sulla guaina
+    # 1-2) Volumetric heat generation and heat flux on the cladding
     # ===================================================================
     qv_profile, H_e, q_avg, q_v_max = volumetric_heat_generation(
         z, r, P_nom, n_rods, D_pellet, H_active, R_eq, F_q)
     q_flux = qv_profile * A_fuel / P_wet  # W/m^2
 
     # ===================================================================
-    # 3) Velocità di massa media
+    # 3) Average mass velocity
     # ===================================================================
     G_avg = average_mass_velocity(m_flow_eff, A_flow_eff)
 
     # ===================================================================
-    # 4) Entalpia e temperatura del refrigerante
+    # 4) Coolant enthalpy and temperature
     # ===================================================================
     h_profile, W_hc = coolant_specific_enthalpy(
         z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_active, T_in)
@@ -682,17 +623,17 @@ if __name__ == "__main__":
     z_sat = z[first_sat_idx] if first_sat_idx is not None else None
 
     # ===================================================================
-    # 5) Titolo di equilibrio
+    # 5) Equilibrium quality
     # ===================================================================
     x_eq_profile, x_eq_completo, H_fg = equilibrium_quality_profile(h_profile, p_sys)
 
     # ===================================================================
-    # 6) Cladding esterno, flow quality, void fraction
+    # 6) Outer cladding, flow quality, void fraction
     # ===================================================================
     h_single_phase, T_co, T_co_JL, T_co_SP, first_onb_idx = T_outer_cladding_profile(
         T_sat, G_avg, D_eq, T_profile, p_sys, C, q_flux)
-    z_NB = z[first_onb_idx] if first_onb_idx is not None else None
-    T_NB = T_profile[first_onb_idx] if first_onb_idx is not None else None
+    z_NB = z[first_onb_idx] if first_onb_idx is not None else None        # ONB position
+    T_co_NB = T_co[first_onb_idx] if first_onb_idx is not None else None  # cladding T at ONB
 
     T_det, z_det, first_detachment_idx = detachment(
         h_single_phase, q_flux, T_sat, T_profile, z)
@@ -707,7 +648,7 @@ if __name__ == "__main__":
         p_sys, D_eq, z, first_onb_idx, first_detachment_idx, G_avg, x_flow_B)
 
     # ===================================================================
-    # 7-8-9) Profili di T da cladding interno fino al centerline pellet
+    # 7-8-9) Temperature profiles from inner cladding to pellet centerline
     # ===================================================================
     T_ci = T_inner_cladding_profile(T_co, qv_profile, A_fuel, D_in_clad, D_out_clad)
 
@@ -725,7 +666,7 @@ if __name__ == "__main__":
     T_centerline = calculate_fuel_centerline_temperature(T_f_S, qv_profile, A_fuel)
 
     # ===================================================================
-    # 10) Flusso critico W3, fattore di griglia, F-factor di Tong, MDNBR
+    # 10) Critical flux W3, grid factor, Tong F-factor, MDNBR
     # ===================================================================
     h_in_kJ = h_profile[0] / 1e3
     h_lsat_kJ = CP.PropsSI('H', 'P', p_sys, 'Q', 0, 'Water') / 1e3
@@ -733,7 +674,7 @@ if __name__ == "__main__":
         G_avg, D_eq, p_sys, h_in_kJ, h_lsat_kJ, x_eq_completo, H_active_in)
     F_profile, qc_NU = critical_flux_non_uniform(
         qc_eu, G_avg, z, q_flux, first_onb_idx, x_eq_completo)
-    DNBR, MDNBR = DNBR_calculation(q_flux/1e3, qc_NU)  # entrambi in kW/m^2
+    DNBR, MDNBR = DNBR_calculation(q_flux/1e3, qc_NU)  # both in kW/m^2
     MDNBR_idx = np.argmin(DNBR)
     z_MDNBR = z[MDNBR_idx]
 
@@ -746,8 +687,8 @@ if __name__ == "__main__":
 
     def plot_axial(filename, xlabel, title, curves, *, ylim=None, markers=(),
                    hlines=(), figsize=(10, 6)):
-        """Salva un plot x-vs-z con una o più curve. Ogni curva è un dict
-        con chiave 'x' (dati) + eventuali kwargs di plt.plot (label, linestyle, ...)."""
+        """Save an x-vs-z plot with one or more curves. Each curve is a dict
+        with key 'x' (data) + optional plt.plot kwargs (label, linestyle, ...)."""
         plt.figure(figsize=figsize)
         show_legend = False
         for c in curves:
@@ -781,14 +722,8 @@ if __name__ == "__main__":
                'Coolant Specific Enthalpy Profile along the z-axis',
                [{'x': h_profile}])
 
-    # 4.2) Coolant temperature con detachment/ONB/saturation
+    # 4.2) Coolant temperature with saturation point
     T_markers = []
-    if T_det is not None:
-        T_markers.append({'x': T_det, 'z': z_det, 'fmt': 'ro',
-                          'label': f'Detachment Point (T={T_det:.1f} °C, z={z_det:.2f} m)'})
-    if T_NB is not None:
-        T_markers.append({'x': T_NB, 'z': z_NB, 'fmt': 'bo',
-                          'label': f'ONB Point (T={T_NB:.1f} °C, z={z_NB:.2f} m)'})
     if z_sat is not None:
         T_markers.append({'x': T_sat - 273.15, 'z': z_sat, 'fmt': 'go',
                           'label': f'Saturated Point (T={T_sat:.1f} °C, z={z_sat:.2f} m)'})
@@ -801,12 +736,17 @@ if __name__ == "__main__":
                'Equilibrium Quality Profile along the z-axis',
                [{'x': x_eq_completo}])
 
-    # 6.1) Outer cladding temperature
+    # 6.1) Outer cladding temperature, with the ONB point
+    onb_markers = []
+    if T_co_NB is not None:
+        onb_markers.append({'x': T_co_NB, 'z': z_NB, 'fmt': 'bo',
+                            'label': f'ONB Point (T={T_co_NB:.1f} °C, z={z_NB:.2f} m)'})
     plot_axial('6.1_outer_cladding_temperature.png', 'Temperature (°C)',
                'Outer Cladding Temperature Profile along the z-axis',
                [{'x': T_co, 'label': 'T_co (Actual)', 'color': 'black', 'linewidth': 2},
                 {'x': T_co_JL, 'label': 'T_co_JL (Jens-Lottes)', 'linestyle': '--'},
-                {'x': T_co_SP, 'label': 'T_co_SP (Single Phase)', 'linestyle': '-.'}])
+                {'x': T_co_SP, 'label': 'T_co_SP (Single Phase)', 'linestyle': '-.'}],
+               markers=onb_markers)
 
     # 6.2) Flow quality
     plot_axial('6.2_flow_quality.png', 'x (kg/kg)',
@@ -836,7 +776,7 @@ if __name__ == "__main__":
                'Pellet Surface Temperature Profile along the z-axis',
                [{'x': T_f_S, 'label': 'T_surface_fuel (°C)', 'color': 'red'}])
 
-    # 8bis) Gap thickness con minimo
+    # 8bis) Gap thickness with its minimum
     min_idx = np.argmin(delta_out)
     plot_axial('8_gap_thickness.png', 'Gap Thickness (m)',
                'Gap Thickness Profile along the z-axis',
@@ -844,17 +784,17 @@ if __name__ == "__main__":
                markers=[{'x': delta_out[min_idx], 'z': z[min_idx], 'fmt': 'bo',
                          'label': f'Min gap: {delta_out[min_idx]:.2e} m (z = {z[min_idx]:.2f} m)'}])
 
-    # 9) Fuel centerline (analitico)
+    # 9) Fuel centerline (analytical)
     plot_axial('9_fuel_centerline_temperature.png', 'T_centerline_fuel (°C)',
                'Fuel Center Line Temperature Profile along the z-axis',
                [{'x': T_centerline, 'label': 'T_centerline_fuel (°C)', 'color': 'red'}])
 
-    # 9bis) Fuel center da soluzione radiale
+    # 9bis) Fuel center from the radial solution
     plot_axial('9bis_center_fuel_temp.png', 'T center [K]',
-               'Temperatura al centro del pellet lungo z',
+               'Pellet Center Temperature along the z-axis',
                [{'x': T_center, 'label': 'T_centerline_fuel (°C)', 'color': 'red'}])
 
-    # 9 all) Tutte le temperature
+    # 9 all) All temperatures
     plot_axial('9_all_temperatures.png', 'Temperature (°C)',
                'All Temperatures Profile along the z-axis',
                [{'x': T_profile, 'label': 'Coolant (T_profile)', 'color': 'blue'},
@@ -875,20 +815,20 @@ if __name__ == "__main__":
                hlines=[{'z': z_MDNBR}])
 
     # ===================================================================
-    # 12) Verifica dei limiti termici di progetto
+    # 12) Design thermal limits verification
     # ===================================================================
-    # Limiti tipici PWR (slide assignment + manuali Westinghouse):
-    #   MDNBR >= 1.85 a potenza nominale
-    #   MDNBR >= 1.30 a massima overpower (typicamente 115% di P_nom)
-    #   T_fuel,CL < 2800 degC (limite di sicurezza, fusione UO2 ~2840 degC)
-    #   T_clad,out < 350 degC in operazione nominale (limite progettuale)
+    # Typical PWR limits (assignment slides + Westinghouse manuals):
+    #   MDNBR >= 1.85 at nominal power
+    #   MDNBR >= 1.30 at maximum overpower (typically 115% of P_nom)
+    #   T_fuel,CL < 2800 degC (safety limit, UO2 melting ~2840 degC)
+    #   T_clad,out < 350 degC at nominal operation (design limit)
     MDNBR_LIMIT_NOMINAL   = 1.85
     MDNBR_LIMIT_OVERPOWER = 1.30
     OVERPOWER_FACTOR      = 1.15
     T_FUEL_LIMIT_C        = 2800.0
     T_CLAD_LIMIT_C        = 350.0
 
-    MDNBR_at_overpower = MDNBR / OVERPOWER_FACTOR  # stima: q sale, q_c ~costante
+    MDNBR_at_overpower = MDNBR / OVERPOWER_FACTOR  # estimate: q rises, q_c ~constant
     T_fuel_max = float(np.max(T_centerline))
     T_clad_max = float(np.max(T_co))
 
@@ -897,21 +837,19 @@ if __name__ == "__main__":
         return "OK" if ok else "FAIL"
 
     print("\n" + "=" * 70)
-    print(" VERIFICA LIMITI TERMICI DI PROGETTO")
+    print(" DESIGN THERMAL LIMITS VERIFICATION")
     print("=" * 70)
-    print(f" MDNBR nominale          = {MDNBR:6.3f}   "
-          f"(limite >= {MDNBR_LIMIT_NOMINAL:.2f})   "
+    print(f" MDNBR nominal           = {MDNBR:6.3f}   "
+          f"(limit >= {MDNBR_LIMIT_NOMINAL:.2f})   "
           f"[{_status(MDNBR, MDNBR_LIMIT_NOMINAL, higher_is_safer=True)}]")
-    print(f"   posizione z(MDNBR)    = {z_MDNBR:+.3f} m")
+    print(f"   z(MDNBR) location     = {z_MDNBR:+.3f} m")
     print(f" MDNBR @ {OVERPOWER_FACTOR*100:.0f}% overpower  = {MDNBR_at_overpower:6.3f}   "
-          f"(limite >= {MDNBR_LIMIT_OVERPOWER:.2f})   "
+          f"(limit >= {MDNBR_LIMIT_OVERPOWER:.2f})   "
           f"[{_status(MDNBR_at_overpower, MDNBR_LIMIT_OVERPOWER, higher_is_safer=True)}]")
     print(f" T fuel centerline max   = {T_fuel_max:6.1f} degC  "
-          f"(limite <= {T_FUEL_LIMIT_C:.0f} degC) "
+          f"(limit <= {T_FUEL_LIMIT_C:.0f} degC) "
           f"[{_status(T_fuel_max, T_FUEL_LIMIT_C, higher_is_safer=False)}]")
     print(f" T cladding outer max    = {T_clad_max:6.1f} degC  "
-          f"(limite <= {T_CLAD_LIMIT_C:.0f} degC)  "
+          f"(limit <= {T_CLAD_LIMIT_C:.0f} degC)  "
           f"[{_status(T_clad_max, T_CLAD_LIMIT_C, higher_is_safer=False)}]")
     print("=" * 70)
-
-
