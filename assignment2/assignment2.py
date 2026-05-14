@@ -1,30 +1,20 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import CoolProp.CoolProp as CP
 from scipy.interpolate import interp1d
 from scipy.integrate import cumulative_trapezoid, trapezoid
-from scipy.special import j0
-import os
-from unit_conversions import psia_to_pa, lbm_per_hr_to_kg_per_s, fahrenheit_to_celsius, inches_to_meters, square_feet_to_square_meters
 from scipy.optimize import fsolve
+from unit_conversions import psia_to_pa, lbm_per_hr_to_kg_per_s, fahrenheit_to_celsius, inches_to_meters, square_feet_to_square_meters
 
 
 # 1) VOLUMETRIC HEAT GENERATION RATE
 def volumetric_heat_generation(z, r, P_nom, n_rods, D, H_active, R_eq, F_q):
     """
-    Calcola il profilo di generazione di calore volumetrico lungo l'asse z.
-    
-    Parameters:
-    - z: array delle posizioni assiali (m)
-    - r: array dei raggi (m)
-    - P_nom: potenza nominale (W)
-    - n_rods: numero di barre combustibili
-    - D_in_clad: diametro interno della guaina (m)
-    - H_active: altezza attiva del core (m)
-    - F_q: fattore di picco del flusso termico
-    
-    Returns:
-    - qv_profile: profilo di generazione di calore volumetrico (W/m^3)
+    Profilo di generazione di calore volumetrico lungo z (chopped cosine).
+    D = diametro pellet (m). r, R_eq servono solo al termine radiale di Bessel
+    (commentato: si lavora nel sub-canale centrale, r=0 -> J0(0)=1).
+    Ritorna: qv_profile (W/m^3), H_e (m), q_avg (W/m^3), q_v_max (W/m^3).
     """
     Tot_power = P_nom * 0.974  # W (potenza totale generata)
     q_avg = Tot_power / (n_rods * np.pi * (D/2)**2 * H_active)  # W/m^3
@@ -65,24 +55,9 @@ def average_mass_velocity(m_flow_eff, A_flow_eff):
 # 3) COOLANT SPECIFIC ENTHALPY
 def coolant_specific_enthalpy(z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_active, T_in):
     """
-    Calcola il profilo di entalpia specifica del refrigerante lungo l'asse z.
-    
-    Parameters:
-    - z: array delle posizioni assiali (m)
-    - G_avg: velocità di massa media (kg/(m^2 s))
-    - A_c: area di flusso per canale (m^2)
-    - w: pitch tra le barre (m)
-    - Dout_clad: diametro esterno della guaina (m)
-    - D_pellet: diametro del pellet (m)
-    - p_sys: pressione del sistema (Pa)
-    - P_nom: potenza nominale (W)
-    - n_rods: numero di barre combustibili
-    - D_in_clad: diametro interno della guaina (m)
-    - H_active: altezza attiva del core (m)
-    - F_q: fattore di picco del flusso termico
-    
-    Returns:
-    - h_profile: profilo di entalpia specifica (J/kg)
+    Profilo di entalpia specifica del refrigerante lungo z (integrale analitico
+    della distribuzione chopped cosine).
+    Ritorna: h_profile (J/kg), W_hc (kg/s, portata per sub-canale).
     """
     W_hc = G_avg * A_c  # kg/s (portata per canale)
     A_fuel = np.pi / 4 * D_pellet**2  # m^2 (area del combustibile)
@@ -100,17 +75,11 @@ def coolant_specific_enthalpy(z, G_avg, A_c, q_v_max, H_e, D_pellet, p_sys, H_ac
 # 4) TEMPERATURE PROFILE
 def temperature_profile(h_profile, p_sys):
     """
-    Calcola il profilo di temperatura del refrigerante lungo l'asse z.
-    
-    Parameters:
-    - h_profile: profilo di entalpia specifica (J/kg)
-    - p_sys: pressione del sistema (Pa)
-    
-    Returns:
-    - T_profile: profilo di temperatura (°C)
+    Profilo di temperatura del refrigerante (°C) da h e p, clampato a T_sat.
+    Ritorna: T_profile (°C), first_sat_idx (indice del primo nodo a saturazione).
     """
     T_profile = CP.PropsSI('T', 'H', h_profile, 'P', p_sys, 'Water') - 273.15  # °C
-        # La temperatura non può superare quella di saturazione nel calcolo dell'entalpia
+    # La temperatura non può superare quella di saturazione
     T_sat = CP.PropsSI('T', 'P', p_sys, 'Q', 0, 'Water') - 273.15 # °C
     T_profile = np.minimum(T_profile, T_sat)
     
@@ -136,21 +105,20 @@ def equilibrium_quality_profile(h_profile, p_sys):
 # 6) CALCULATION OF THE OUTER CLADDING TEMPERATURE
 
 def safe_props(prop, T_K, P, T_sat_K):
-        try:
-            # Riduciamo leggermente T per evitare conflitti con la curva di saturazione
-            if T_K >= T_sat_K - 0.01:
-                return CP.PropsSI(prop, 'P', P, 'Q', 0, 'Water')
-            return CP.PropsSI(prop, 'T', T_K, 'P', P, 'Water')
-        except ValueError:
+    """Proprietà CoolProp robusta: vicino/oltre saturazione usa il liquido saturo."""
+    try:
+        if T_K >= T_sat_K - 0.01:
             return CP.PropsSI(prop, 'P', P, 'Q', 0, 'Water')
-        
-### CONTROLLARE PROFILO T, TROPPO VERSO IL BASSO
+        return CP.PropsSI(prop, 'T', T_K, 'P', P, 'Water')
+    except ValueError:
+        return CP.PropsSI(prop, 'P', P, 'Q', 0, 'Water')
+
+
 def T_outer_cladding_profile(T_sat_K, G_avg, D_eq, T_profile, p_sys, C, q_flux):
     """
-    Calcola il coefficiente di scambio termico (h) usando la legge di Dittus-Boelter.
-    
+    Temperatura cladding esterna: Dittus-Boelter monofase vs Jens-Lottes (boiling),
+    si prende il minimo. Ritorna anche l'indice di ONB.
     """
-
     # Vettorizzazione iterando sui valori di T_profile (con conversione in Kelvin)
     mu_profile = np.array([safe_props('V', T + 273.15, p_sys, T_sat_K) for T in T_profile])
     k_profile = np.array([safe_props('L', T + 273.15, p_sys, T_sat_K) for T in T_profile])
@@ -301,34 +269,30 @@ def void_fraction(p_sys, D_eq, zz, i_ONB, i_Det, G_avg, X_flow):
     return void_fraction_profile_ZF, void_fraction_profile_F, void_fraction_profile_M
     
 # 7) T INNER CLADDING TEMPERATURE PROFILE
-def k_zircaloy(T):
-    # Esempio di correlazione inventata (sostituisci con quella del testo se c'è!)
-    # T in °C, restituisce W/mK
-    return 11.45 + 1.425e-2 * T
-
 def T_inner_cladding_profile(T_co, q_vol, A_f, D_ci, D_co):
-        T_inner = np.zeros_like(T_co)
+    """
+    T cladding interna da conduzione in cilindro cavo con k_Zr = A + B*T:
+    integrando, A*(T_ci-T_co) + B/2*(T_ci^2-T_co^2) = q_v*A_f/(2pi)*ln(D_co/D_ci).
+    Equazione quadratica in T_ci, si prende la radice fisica positiva.
+    """
+    T_inner = np.zeros_like(T_co)
+    A = 11.45      # k_Zr = A + B*T  (W/m°C), WCAP 3269-4-1
+    B = 1.425e-2
 
-        for i in range(len(T_co)):
-            T_co_loc = T_co[i]
-            q_vol_loc = q_vol[i]
+    for i in range(len(T_co)):
+        T_co_loc = T_co[i]
+        rhs = q_vol[i] * A_f / (2 * np.pi) * np.log(D_co / D_ci)
 
-            rhs = q_vol_loc * A_f / (2 * np.pi) * np.log(D_co / D_ci)
+        # (B/2)*T_ci^2 + A*T_ci + c = 0
+        a = B / 2
+        b = A
+        c = -rhs - (A * T_co_loc + B/2 * T_co_loc**2)
+        delta = b**2 - 4*a*c
+        if delta < 0:
+            raise ValueError("Delta negativo, nessuna soluzione reale per T_inner")
+        T_inner[i] = (-b + np.sqrt(delta)) / (2*a)
 
-            A = 11.45
-            B = 1.425e-2
-
-            # Risolvo l'equazione non lineare per T_inner
-            a = B/2
-            b = A
-            c = -rhs - (A * T_co_loc + B/2 * T_co_loc**2)
-            delta = b**2 - 4*a*c
-            if delta < 0:
-                raise ValueError("Delta negativo, nessuna soluzione reale per T_inner") 
-            # Bisogna usare la radice positiva per ottenere il valore fisico corretto
-            T_inner[i] = (-b + np.sqrt(delta)) / (2*a)
-
-        return T_inner
+    return T_inner
 
 # 8) T PELLET SURFACE TEMPERATURE PROFILE
 def pellet_thermal_conductivity(T):
@@ -446,7 +410,7 @@ def calculate_fuel_centerline_temperature(T_f_S_profile, q_vol_profile, A_fuel):
     T_centerline = np.zeros_like(T_f_S_profile)
     
     # Fattore di depressione del flusso (di solito 1 se non specificato altrimenti)
-    f_robertson = 1.0 
+    f_robertson = 0.965 
     
     for i in range(len(T_f_S_profile)):
         T_surface_loc = T_f_S_profile[i]
@@ -491,7 +455,8 @@ def solve_pellet_radial_temperature(z,q_vol_profile,T_surface,R_pellet,pellet_th
         dT/dr = 0          a r = 0
         T = T_surface(z)   a r = R_pellet
     """
-
+    f_rob = 0.965 # Robertson factor
+    q_vol_profile = q_vol_profile*f_rob
     r = np.linspace(0, R_pellet, Nr)
     dr = r[1] - r[0]
 
@@ -834,7 +799,7 @@ if __name__ == "__main__":
     # 5) Equilibrium quality
     plot_axial('5_equilibrium_quality.png', 'x (kg/kg)',
                'Equilibrium Quality Profile along the z-axis',
-               [{'x': x_eq_profile}])
+               [{'x': x_eq_completo}])
 
     # 6.1) Outer cladding temperature
     plot_axial('6.1_outer_cladding_temperature.png', 'Temperature (°C)',
