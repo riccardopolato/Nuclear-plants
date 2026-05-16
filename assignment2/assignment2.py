@@ -795,6 +795,7 @@ if __name__ == "__main__":
                [{'x': T_center, 'label': 'T_centerline_fuel (°C)', 'color': 'red'}])
 
     # 9 all) All temperatures
+    T_fuel_max_idx = int(np.argmax(T_centerline))
     plot_axial('9_all_temperatures.png', 'Temperature (°C)',
                'All Temperatures Profile along the z-axis',
                [{'x': T_profile, 'label': 'Coolant (T_profile)', 'color': 'blue'},
@@ -802,6 +803,8 @@ if __name__ == "__main__":
                 {'x': T_ci, 'label': 'Cladding Inside (T_ci)', 'color': 'green'},
                 {'x': T_f_S, 'label': 'Fuel Surface (T_f_S)', 'color': 'orange'},
                 {'x': T_centerline, 'label': 'Fuel Centerline', 'color': 'red'}],
+               markers=[{'x': T_centerline[T_fuel_max_idx], 'z': z[T_fuel_max_idx], 'fmt': 'ro',
+                         'label': f'T_fuel max = {T_centerline[T_fuel_max_idx]:.1f} °C (z = {z[T_fuel_max_idx]:.2f} m)'}],
                figsize=(10, 8))
 
     # 11) Critical heat flux + MDNBR
