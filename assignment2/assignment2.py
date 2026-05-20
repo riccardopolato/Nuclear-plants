@@ -726,7 +726,7 @@ if __name__ == "__main__":
     T_markers = []
     if z_sat is not None:
         T_markers.append({'x': T_sat - 273.15, 'z': z_sat, 'fmt': 'go',
-                          'label': f'Saturated Point (T={T_sat:.1f} °C, z={z_sat:.2f} m)'})
+                          'label': f'Saturated Point (T={T_sat-273.15:.1f} °C, z={z_sat:.2f} m)'})
     plot_axial('4.2_coolant_temperature_profile.png', 'T (°C)',
                'Coolant Temperature Profile along the z-axis',
                [{'x': T_profile, 'label': 'T_coolant (°C)'}], markers=T_markers)
