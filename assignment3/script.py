@@ -92,21 +92,24 @@ def gas_plenum_analysis(T_gas, D_f, D_in, H, p_i_max):
     H2O = 75  # ppm in peso (impurita')
     M_N2, M_H2O = 0.028, 0.018               # kg/mol
     Y_XeKr = 0.28                # resa di fissione COMBINATA Xe+Kr (atomi di gas nobile per fissione)
-    f_R = 0.4                    # frazione di gas rilasciata dalla pastiglia
-    rho_fuel = 0.95 * 10960     # kg/m3, densita' UO2 (95% del teorico)
+    f_R = 0.4 
+    rho_teorica = 10960                   # frazione di gas rilasciata dalla pastiglia
+    rho_fuel = 0.95 * rho_teorica     # kg/m3, densita' UO2 (95% del teorico)
     E_fiss = 200 * 1.60218e-13   # J, energia rilasciata per fissione (200 MeV)
     e_U235 = 0.0445              # arricchimento (frazione in peso di U-235); coerente con enr_max in main (AP1000, verificare su ML11171A443)
-    M_235, M_238, M_O = 235.04, 238.05, 16.00            # g/mol
+    M_235, M_238, M_O = 235, 238, 16.00            # g/mol
     M_U = 1 / (e_U235 / M_235 + (1 - e_U235) / M_238)    # g/mol, massa molare media dell'U arricchito (media in peso)
     M_UO2 = M_U + 2 * M_O        # g/mol
     N_A = 6.022e23              # 1/mol, numero di Avogadro
     # massa di combustibile e di uranio nella barretta
     V_fuel = np.pi * (D_f / 2)**2 * H   # m3, volume della colonna di pastiglie
     m_UO2 = V_fuel * rho_fuel           # kg, massa di UO2
+    f_uranio = M_U / M_UO2                   # frazione in peso di uranio nell'UO2
     m_U = m_UO2 * M_U / M_UO2           # kg, massa di uranio
     R = 8.314  # J/(mol K), costante dei gas
     # moli di gas di fissione rilasciati
     N_fiss = burn_up_J * m_U / E_fiss   # adimensionale (numero di fissioni)
+    n_fiss = N_fiss / N_A                   # mol di fissioni
     n_fg = N_fiss * f_R * Y_XeKr / N_A   # mol di gas di fissione (Xe+Kr) rilasciate
 
 
@@ -172,8 +175,8 @@ def main():
     p_int_gas = 7e6                        # Pa, pressione massima ammissibile del gas di riempimento (fill-gas)
     D_fuel = inputs["D_pellet"]            # m, diametro del pellet di combustibile
     H_active = inputs["H_active"]          # m, altezza attiva della barra
-    enr_max = 0.0445
-                    # J/kg, energia specifica media rilasciata per unità di massa di combustibile
+    
+    # mechanical properties    
     sigma_y = 241  # MPa, tensione di snervamento 
     sigma_u = 413  # MPa, tensione di rottura
     S = min(2/3 * sigma_y, 1/3 * sigma_u)  # MPa, tensione ammissibile (Kye-Ho Tab.2)
