@@ -350,7 +350,7 @@ def calculate_T_pellet_surface_iterative(T_ci, T_co, q_vol_profile, A_fuel, D_pe
     T_fuel_avg = T_f_S + 200.0   # initial guess for the pellet mean temperature
     T_c_avg = (T_ci + T_co) / 2
 
-    p_i = 3e6  # Pa (fill-gas internal pressure)
+    p_i = 7e6  # Pa (fill-gas internal pressure)
     tol = 1e-3
     max_iter = 1000
 

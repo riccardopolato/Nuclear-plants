@@ -82,6 +82,81 @@ def thermal_stress(T_ci, T_co, r_in, r_out):
     return sigma_h_in, sigma_h_out, sigma_th_in, sigma_th_out
 
 
+# 5) GAS PLENUM ANALYSIS
+def gas_plenum_analysis(T_gas, D_f, D_in, H, p_i_max):
+    # DATI
+    # gas prodotti solo da Xe e Kr e possono essere trattati come gas perfetti
+    burn_up_MWd = 60e3                            # MWd/tU
+    burn_up_J = burn_up_MWd * 1e6 * 86400 / 1e3   # J/kg_U  (1 MWd = 1e6 W * 86400 s; per tU -> per 1e3 kg)
+    N2 = 25   # ppm in peso (impurita')
+    H2O = 75  # ppm in peso (impurita')
+    M_N2, M_H2O = 0.028, 0.018               # kg/mol
+    Y_XeKr = 0.28                # resa di fissione COMBINATA Xe+Kr (atomi di gas nobile per fissione)
+    f_R = 0.4                    # frazione di gas rilasciata dalla pastiglia
+    rho_fuel = 0.95 * 10960     # kg/m3, densita' UO2 (95% del teorico)
+    E_fiss = 200 * 1.60218e-13   # J, energia rilasciata per fissione (200 MeV)
+    e_U235 = 0.0445              # arricchimento (frazione in peso di U-235); coerente con enr_max in main (AP1000, verificare su ML11171A443)
+    M_235, M_238, M_O = 235.04, 238.05, 16.00            # g/mol
+    M_U = 1 / (e_U235 / M_235 + (1 - e_U235) / M_238)    # g/mol, massa molare media dell'U arricchito (media in peso)
+    M_UO2 = M_U + 2 * M_O        # g/mol
+    N_A = 6.022e23              # 1/mol, numero di Avogadro
+    # massa di combustibile e di uranio nella barretta
+    V_fuel = np.pi * (D_f / 2)**2 * H   # m3, volume della colonna di pastiglie
+    m_UO2 = V_fuel * rho_fuel           # kg, massa di UO2
+    m_U = m_UO2 * M_U / M_UO2           # kg, massa di uranio
+    R = 8.314  # J/(mol K), costante dei gas
+    # moli di gas di fissione rilasciati
+    N_fiss = burn_up_J * m_U / E_fiss   # adimensionale (numero di fissioni)
+    n_fg = N_fiss * f_R * Y_XeKr / N_A   # mol di gas di fissione (Xe+Kr) rilasciate
+
+
+    # moli di impurità
+    n_N2  = (N2  * 1e-6 * m_UO2) / M_N2       # mol  (N2  = 25 ppm)
+    n_H2O = (H2O * 1e-6 * m_UO2) / M_H2O      # mol  (H2O = 75 ppm)
+
+    # calcolo le moli totali
+    n_tot = n_fg + n_N2 + n_H2O
+
+    # temperatura del gas = T interna guaina alla quota del plenum (in cima al pin)
+    T = T_gas[-1] + 273.15  # K  (T_gas e' in degC)
+
+    # legge dei gas perfetti -> volume del plenum a p_i_max
+    V = n_tot * R * T / p_i_max          # m3
+    # il plenum e' delimitato dalla parete INTERNA della guaina (non dal pellet)
+    A_plenum = np.pi * (D_in / 2)**2     # m2, sezione interna guaina
+    H_plenum = V / A_plenum              # m, altezza del plenum
+
+    # ---- CHECK: validita' del gas ideale per il vapore d'acqua ----
+    p_H2O = n_H2O / n_tot * p_i_max      # Pa, pressione parziale H2O (legge di Dalton)
+    Tc_H2O, pc_H2O = 647.1, 22.06e6      # K, Pa (coordinate critiche acqua)
+    Tr, pr = T / Tc_H2O, p_H2O / pc_H2O
+    try:
+        import CoolProp.CoolProp as CP
+        Z = CP.PropsSI('Z', 'T', T, 'P', p_H2O, 'Water')   # fattore di compressibilita'
+    except Exception:
+        Z = float('nan')
+
+    # ---- RISULTATO FINALE ----
+    print()
+    print("=" * 52)
+    print(" GAS PLENUM SIZING")
+    print("=" * 52)
+    print(f" n (Xe+Kr) rilasciate  = {n_fg * 1e3:8.3f} mmol")
+    print(f" n N2                  = {n_N2 * 1e3:8.3f} mmol")
+    print(f" n H2O                 = {n_H2O * 1e3:8.3f} mmol")
+    print(f" n_tot                 = {n_tot * 1e3:8.3f} mmol")
+    print("-" * 52)
+    print(f" T_gas (cima, interna) = {T - 273.15:8.1f} degC ({T:7.1f} K)")
+    print(f" p_i,max (Mariotte)    = {p_i_max / 1e6:8.2f} MPa")
+    print(f" V_plenum              = {V * 1e6:8.2f} cm^3")
+    print(f" H_plenum              = {H_plenum * 100:8.2f} cm")
+    print("-" * 52)
+    gas_ok = "OK (Z~1)" if abs(Z - 1) < 0.05 else "non ideale, verificare"
+    print(f" H2O ideal gas: Tr={Tr:.3f}  pr={pr:.3f}  Z={Z:.3f}  -> {gas_ok}")
+    print("=" * 52)
+
+    return V, H_plenum, n_tot
+
 
 
 # ------- \MAIN -------
@@ -94,14 +169,18 @@ def main():
     D_in = D_out_clad - 2 * thickness    # m, diametro interno guaina
     r_avg = (D_out_clad + D_in) / 4          # raggio medio = (r_in + r_out)/2
     p_sys = inputs["p_sys"]              # Pa, pressione di sistema
-
+    p_int_gas = 7e6                        # Pa, pressione massima ammissibile del gas di riempimento (fill-gas)
+    D_fuel = inputs["D_pellet"]            # m, diametro del pellet di combustibile
+    H_active = inputs["H_active"]          # m, altezza attiva della barra
+    enr_max = 0.0445
+                    # J/kg, energia specifica media rilasciata per unità di massa di combustibile
     sigma_y = 241  # MPa, tensione di snervamento 
     sigma_u = 413  # MPa, tensione di rottura
     S = min(2/3 * sigma_y, 1/3 * sigma_u)  # MPa, tensione ammissibile (Kye-Ho Tab.2)
 
     # Temperature della guaina rilette dall'output dell'Assignment 2
     z, T_ci, T_co = load_cladding_temperatures()
-
+    T_gas = T_ci
     # temperatura media nella parete (media interna/esterna)
     T_c_avg = (T_co + T_ci) / 2          # deg C, profilo lungo z
 
@@ -118,7 +197,7 @@ def main():
     p_i = internal_pressure_analysis(sigma_y, r_avg, thickness)  # Pa
 
     # 3) STRESS ANALYSIS
-    sigma_max_in, sigma_max_out, sigma_in_diz, sigma_out_diz = stress_analysis(D_in/2, D_out_clad/2, p_i, p_sys)  # Pa
+    sigma_max_in, sigma_max_out, sigma_in_diz, sigma_out_diz = stress_analysis(D_in/2, D_out_clad/2, p_int_gas, p_sys)  # Pa
     P_in = sigma_max_in / 1e6     # MPa
     P_out = sigma_max_out / 1e6    # MPa
     # componenti meccaniche in MPa (stress_analysis lavora in Pa: p_i, p_sys sono in Pa)
@@ -155,6 +234,9 @@ def main():
     sigma_r_in_tot = sigma_in_diz["r"] + sigma_th_in_diz["r"]
     sigma_r_out_tot = sigma_out_diz["r"] + sigma_th_out_diz["r"]
 
+    # 5) GAS PLENUM SIZING  -- p_i_max = pressione massima ammissibile (Mariotte, sigma_h = sigma_y)
+    V_plenum, H_plenum, n_tot = gas_plenum_analysis(T_gas, D_fuel, D_in, H_active, p_i)
+
 
 # ----- PLOT ------
 # 1) Buckling analysis: p_cr(z)
@@ -171,11 +253,12 @@ def main():
     plt.savefig(PLOTS_DIR / "buckling_analysis_pcr.png", dpi=300)
     
     plt.figure()
-    plt.plot(sigma_max_in_tot, z,  label="Thermal stress - internal (MPa)")
-    plt.plot(sigma_max_out_tot, z,  label="Thermal stress - external (MPa)")
+    plt.plot(sigma_max_in_tot,  z, label="Max stress inner (MPa)")
+    plt.plot(sigma_max_out_tot, z, label="Max stress outer (MPa)")
+    plt.axvline(3*S, color="red", linestyle="--", label="Sm (MPa)")
     plt.ylabel("z (m)")
     plt.xlabel("Pressure (MPa)")
-    plt.title("Buckling analysis")
+    plt.title("Tresca vs 3*Sm")
     plt.legend()
     plt.grid()
     PLOTS_DIR.mkdir(exist_ok=True)
