@@ -1,0 +1,17 @@
+name,value,unit,value_SI,unit_SI,description
+P_nom,3400,MW,3.4e9,W,Nominal thermal power
+p_sys,2250,psia,1.55132e7,Pa,System pressure
+n_rods,41448,-,41448,-,Total number of fuel rods (157 assemblies x 264 rods/assembly)
+m_flow_tot,113.5e6,lbm/hr,14300.77,kg/s,Total coolant mass flow rate
+F_q,2.6,-,2.6,-,Heat flux hot channel factor
+Bypass_fraction,0.059,-,0.059,-,Core bypass flow fraction
+A_flow_eff,41.8,ft^2,3.88334,m^2,Effective coolant flow area
+T_in,535,F,279.444,C,Coolant inlet temperature
+D_out_clad,0.374,in,9.4996e-3,m,Outer cladding diameter
+H_active,168,in,4.2672,m,Active core height
+w,0.496,in,1.25984e-2,m,Rod pitch (square array)
+s_clad,0.0225,in,5.715e-4,m,Cladding thickness
+D_pellet,0.3225,in,8.1915e-3,m,Fuel pellet diameter
+R_eq,119.7,in,3.04038,m,Equivalent core radius
+T_amb,25,C,25,C,Ambient (reference) temperature
+p_i,3,MPa,3e6,Pa,Internal fill-gas pressure (pellet-clad gap)

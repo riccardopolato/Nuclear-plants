@@ -608,7 +608,7 @@ if __name__ == "__main__":
     qv_profile, H_e, q_avg, q_v_max = volumetric_heat_generation(
         z, r, P_nom, n_rods, D_pellet, H_active, R_eq, F_q)
     q_flux = qv_profile * A_fuel / P_wet  # W/m^2
-
+    
     # ===================================================================
     # 3) Average mass velocity
     # ===================================================================
@@ -856,3 +856,4 @@ if __name__ == "__main__":
           f"(limit <= {T_CLAD_LIMIT_C:.0f} degC)  "
           f"[{_status(T_clad_max, T_CLAD_LIMIT_C, higher_is_safer=False)}]")
     print("=" * 70)
+
