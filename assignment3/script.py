@@ -172,7 +172,6 @@ def main():
     D_in = D_out_clad - 2 * thickness    # m, diametro interno guaina
     r_avg = (D_out_clad + D_in) / 4          # raggio medio = (r_in + r_out)/2
     p_sys = inputs["p_sys"]              # Pa, pressione di sistema
-    p_int_gas = 7e6                        # Pa, pressione massima ammissibile del gas di riempimento (fill-gas)
     D_fuel = inputs["D_pellet"]            # m, diametro del pellet di combustibile
     H_active = inputs["H_active"]          # m, altezza attiva della barra
     
@@ -200,7 +199,7 @@ def main():
     p_i = internal_pressure_analysis(sigma_y, r_avg, thickness)  # Pa
 
     # 3) STRESS ANALYSIS
-    sigma_max_in, sigma_max_out, sigma_in_diz, sigma_out_diz = stress_analysis(D_in/2, D_out_clad/2, p_int_gas, p_sys)  # Pa
+    sigma_max_in, sigma_max_out, sigma_in_diz, sigma_out_diz = stress_analysis(D_in/2, D_out_clad/2, p_i, p_sys)  # Pa
     P_in = sigma_max_in / 1e6     # MPa
     P_out = sigma_max_out / 1e6    # MPa
     # componenti meccaniche in MPa (stress_analysis lavora in Pa: p_i, p_sys sono in Pa)
