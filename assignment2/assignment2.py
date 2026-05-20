@@ -652,6 +652,15 @@ if __name__ == "__main__":
     # ===================================================================
     T_ci = T_inner_cladding_profile(T_co, qv_profile, A_fuel, D_in_clad, D_out_clad)
 
+    # ------------------- Export per Assignment 3 -----------------------
+    # Salva i profili di temperatura della guaina (parete interna/esterna) in un
+    # CSV, cosi' l'Assignment 3 puo' rileggerli senza ricalcolare la catena TH.
+    out_csv = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           'output_cladding_T.csv')
+    np.savetxt(out_csv, np.column_stack([z, T_ci, T_co]),
+               delimiter=',', header='z_m,T_ci_C,T_co_C', comments='')
+    print(f"Cladding temperatures exported to: {out_csv}")
+
     T_amb = 25
     delta0 = 0.5*(D_in_clad - D_pellet)
     T_f_S, h_tot, delta_out, T_center, iteration = calculate_T_pellet_surface_iterative(
