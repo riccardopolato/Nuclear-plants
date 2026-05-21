@@ -108,7 +108,7 @@ def gas_plenum_analysis(T_gas, D_f, D_in, H, p_i_max):
     H2O = 75  # ppm in peso (impurita')
     M_N2, M_H2O = 0.028, 0.018               # kg/mol
     Y_XeKr = 0.28                # resa di fissione COMBINATA Xe+Kr (atomi di gas nobile per fissione)
-    f_R = 0.4 
+    R_r=0.4 
     rho_teorica = 10960                   # frazione di gas rilasciata dalla pastiglia
     rho_fuel = 0.95 * rho_teorica     # kg/m3, densita' UO2 (95% del teorico)
     E_fiss = 200 * 1.60218e-13   # J, energia rilasciata per fissione (200 MeV)
@@ -126,7 +126,7 @@ def gas_plenum_analysis(T_gas, D_f, D_in, H, p_i_max):
     # moli di gas di fissione rilasciati
     N_fiss = burn_up_J * m_U / E_fiss   # adimensionale (numero di fissioni)
     n_fiss = N_fiss / N_A                   # mol di fissioni
-    n_fg = N_fiss * f_R * Y_XeKr / N_A   # mol di gas di fissione (Xe+Kr) rilasciate
+    n_fg = N_fiss * R_r * Y_XeKr / N_A   # mol di gas di fissione (Xe+Kr) rilasciate
 
 
     # moli di impurità
@@ -144,6 +144,7 @@ def gas_plenum_analysis(T_gas, D_f, D_in, H, p_i_max):
     # il plenum e' delimitato dalla parete INTERNA della guaina (non dal pellet)
     A_plenum = np.pi * (D_in / 2)**2     # m2, sezione interna guaina
     H_plenum = V / A_plenum              # m, altezza del plenum
+    H_tot_plenum = H_plenum + 0.15 #m, add 15 cm to account for the spring
 
     # ---- CHECK: validita' del gas ideale per il vapore d'acqua ----
     p_H2O = n_H2O / n_tot * p_i_max      # Pa, pressione parziale H2O (legge di Dalton)
@@ -174,7 +175,7 @@ def gas_plenum_analysis(T_gas, D_f, D_in, H, p_i_max):
     print(f" H2O ideal gas: Tr={Tr:.3f}  pr={pr:.3f}  Z={Z:.3f}  -> {gas_ok}")
     print("=" * 52)
 
-    return V, H_plenum, n_tot
+    return V, H_plenum, n_tot,H_tot_plenum
 
 
 
@@ -271,8 +272,9 @@ def main():
     
 
     # 5) GAS PLENUM SIZING  -- p_i_max = pressione massima ammissibile (Mariotte, sigma_h = sigma_y)
-    V_plenum, H_plenum, n_tot = gas_plenum_analysis(T_gas, D_fuel, D_in, H_active, p_i)
-
+    V_plenum, H_plenum, n_tot, H_tot_plenum = gas_plenum_analysis(T_gas, D_fuel, D_in, H_active, p_i)
+    print(f"Total plenum height (including spring): {H_tot_plenum:.2f} m")
+    print(f"Plenum height (without spring): {H_plenum:.2f} m")
 
 # ----- PLOT ------
 # 1) Buckling analysis: p_cr(z)
