@@ -62,12 +62,28 @@ def stress_analysis(r_in, r_out, p_i, p_o):
     sigma_r_out = - p_o
     sigma_l_out = (p_i*r_in**2 - p_o*r_out**2)/(r_out**2 - r_in**2)  # MPa, tensione longitudinale interna
 
-    sigma_max_in = max(abs(sigma_h_in-sigma_r_in), abs(sigma_r_in-sigma_l_in), abs(sigma_l_in-sigma_h_in))  # MPa, tensione massima di Von Mises interna
-    sigma_max_out = max(abs(sigma_h_out-sigma_r_out), abs(sigma_r_out-sigma_l_out), abs(sigma_l_out-sigma_h_out))  # MPa, tensione massima di Von Mises esterna
+    sigma_avg_h = (sigma_h_in + sigma_h_out) / 2
+    sigma_avg_r = (sigma_r_in + sigma_r_out) / 2   
+    sigma_avg_l = (sigma_l_in + sigma_l_out) / 2
 
-    sigma_in = {"h": sigma_h_in, "r": sigma_r_in, "l": sigma_l_in}
-    sigma_out = {"h": sigma_h_out, "r": sigma_r_out, "l": sigma_l_out}
-    return sigma_max_in, sigma_max_out, sigma_in, sigma_out
+    # Meccanici secondari
+    sigma_h_in_sec = sigma_h_in - sigma_avg_h  # MPa, tensione circonferenziale secondaria interna
+    sigma_r_in_sec = sigma_r_in - sigma_avg_r  # MPa, tensione radiale secondaria interna
+    sigma_l_in_sec = sigma_l_in - sigma_avg_l  # MPa, tensione longitudinale secondaria interna
+
+    sigma_h_out_sec = sigma_h_out - sigma_avg_h  # MPa, tensione circonferenziale secondaria esterna
+    sigma_r_out_sec = sigma_r_out - sigma_avg_r  # MPa, tensione radiale secondaria esterna
+    sigma_l_out_sec = sigma_l_out - sigma_avg_l  # MPa, tensione longitudinale secondaria esterna
+
+    sigma_max_avg = max(abs(sigma_avg_h-sigma_avg_r), abs(sigma_avg_r-sigma_avg_l), abs(sigma_avg_l-sigma_avg_h))  # MPa, tensione massima di Von Mises interna
+    
+    sigma_in_diz = {"h": sigma_h_in, "r": sigma_r_in, "l": sigma_l_in}
+    sigma_out_diz = {"h": sigma_h_out, "r": sigma_r_out, "l": sigma_l_out}
+    sigma_in_sec_diz = {"h": sigma_h_in_sec, "r": sigma_r_in_sec, "l": sigma_l_in_sec}
+    sigma_out_sec_diz = {"h": sigma_h_out_sec, "r": sigma_r_out_sec, "l": sigma_l_out_sec}
+    sigma_avg_diz = {"h": sigma_avg_h, "r": sigma_avg_r, "l": sigma_avg_l}
+    
+    return sigma_max_avg, sigma_in_diz, sigma_out_diz, sigma_in_sec_diz, sigma_out_sec_diz, sigma_avg_diz
 
 # 4) THERMAL STRESS
 def thermal_stress(T_ci, T_co, r_in, r_out):
@@ -79,7 +95,7 @@ def thermal_stress(T_ci, T_co, r_in, r_out):
     sigma_h_out = term1*(1-(2*r_in**2)/(r_out**2-r_in**2)* np.log(r_out/r_in))  # MPa, tensione termica interna
     sigma_th_in = {"h": sigma_h_in, "r": np.zeros_like(sigma_h_in), "l": sigma_h_in}
     sigma_th_out = {"h": sigma_h_out, "r": np.zeros_like(sigma_h_out), "l": sigma_h_out}
-    return sigma_h_in, sigma_h_out, sigma_th_in, sigma_th_out
+    return sigma_th_in, sigma_th_out
 
 
 # 5) GAS PLENUM ANALYSIS
@@ -199,12 +215,15 @@ def main():
     p_i = internal_pressure_analysis(sigma_y, r_avg, thickness)  # Pa
 
     # 3) STRESS ANALYSIS
-    sigma_max_in, sigma_max_out, sigma_in_diz, sigma_out_diz = stress_analysis(D_in/2, D_out_clad/2, p_i, p_sys)  # Pa
-    P_in = sigma_max_in / 1e6     # MPa
-    P_out = sigma_max_out / 1e6    # MPa
+    sigma_max_avg, sigma_in_diz, sigma_out_diz,sigma_in_sec_diz,sigma_out_sec_diz,sigma_avg_diz = stress_analysis(D_in/2, D_out_clad/2, p_i, p_sys)  # Pa
+    P_avg = sigma_max_avg / 1e6     # MPa  
     # componenti meccaniche in MPa (stress_analysis lavora in Pa: p_i, p_sys sono in Pa)
     sigma_in_diz = {k: v / 1e6 for k, v in sigma_in_diz.items()}    # MPa
     sigma_out_diz = {k: v / 1e6 for k, v in sigma_out_diz.items()}  # MPa
+    sigma_avg_diz = {k: v / 1e6 for k, v in sigma_avg_diz.items()}
+    sigma_in_sec_diz = {k: v / 1e6 for k, v in sigma_in_sec_diz.items()}  # MPa
+    sigma_out_sec_diz = {k: v / 1e6 for k, v in sigma_out_sec_diz.items()}  # MPa
+
 
     # Tabella di verifica ASME (stress primari, condizioni di design): sigma_max <= Sm
     print()
@@ -214,27 +233,42 @@ def main():
     print(f" Sm = min(2/3 sy, 1/3 su) = {S:.2f} MPa")
     print("-" * 52)
     print(f" {'Wall':<8}{'sigma_max [MPa]':>18}{'Sm [MPa]':>12}{'Check':>10}")
-    for name, smax in (("Inner", P_in), ("Outer", P_out)):
-        verdict = "OK" if smax < S else "NOT OK"
-        print(f" {name:<8}{smax:>18.2f}{S:>12.2f}{verdict:>10}")
+    # ASME check: use average stress value `P_avg` (one value instead of inner/outer)
+    name = "Average"
+    smax = P_avg
+    verdict = "OK" if smax < S else "NOT OK"
+    print(f" {name:<8}{smax:>18.2f}{S:>12.2f}{verdict:>10}")
     print("=" * 52)
 
     # 4) THERMAL STRESS
-    Q_in, Q_out, sigma_th_in_diz, sigma_th_out_diz = thermal_stress(T_ci + 273.15, T_co + 273.15, D_in/2, D_out_clad/2)  # MPa 
-    sigma_max_in_tot = P_in + Q_in
-    sigma_max_out_tot = P_out + Q_out
-    if max(sigma_max_in_tot) < 3*S and max(sigma_max_out_tot) < 3*S:
+    sigma_th_in_diz, sigma_th_out_diz = thermal_stress(T_ci + 273.15, T_co + 273.15, D_in/2, D_out_clad/2)  # MPa 
+    
+    sigma_h_in_tot = sigma_avg_diz["h"]+sigma_in_sec_diz["h"] + sigma_th_in_diz["h"] # primarimeccanici+ secondari meccanici + termici
+    sigma_h_out_tot = sigma_avg_diz["h"]+sigma_out_sec_diz["h"] + sigma_th_out_diz["h"]
+    sigma_l_in_tot = sigma_avg_diz["l"]+sigma_in_sec_diz["l"] + sigma_th_in_diz["l"]
+    sigma_l_out_tot = sigma_avg_diz["l"]+sigma_out_sec_diz["l"] + sigma_th_out_diz["l"]
+    sigma_r_in_tot = sigma_avg_diz["r"]+sigma_in_sec_diz["r"] + sigma_th_in_diz["r"]
+    sigma_r_out_tot = sigma_avg_diz["r"]+sigma_out_sec_diz["r"] + sigma_th_out_diz["r"]
+    
+    # Tresca (element-wise) per in e per out: massimo fra le tre differenze in ogni punto z
+    arr1_in = np.abs(sigma_l_in_tot - sigma_h_in_tot)
+    arr2_in = np.abs(sigma_l_in_tot - sigma_r_in_tot)
+    arr3_in = np.abs(sigma_h_in_tot - sigma_r_in_tot)
+    sigma_max_in_tot = np.maximum.reduce([arr1_in, arr2_in, arr3_in])
+
+    arr1_out = np.abs(sigma_l_out_tot - sigma_h_out_tot)
+    arr2_out = np.abs(sigma_l_out_tot - sigma_r_out_tot)
+    arr3_out = np.abs(sigma_h_out_tot - sigma_r_out_tot)
+    sigma_max_out_tot = np.maximum.reduce([arr1_out, arr2_out, arr3_out])
+
+    # confronto scalare sul massimo lungo il profilo z (peggiore caso)
+    if np.max(sigma_max_in_tot) < 3 * S and np.max(sigma_max_out_tot) < 3 * S:
         print("The cladding is safe against combined mechanical and thermal stresses.")
     else:
         print("The cladding is NOT safe against combined mechanical and thermal stresses.")
 
     # calcolo delle tensioni totali (meccaniche + termiche) per ogni componente (h, r, l) e per interno/esterno
-    sigma_h_in_tot = sigma_in_diz["h"] + sigma_th_in_diz["h"]
-    sigma_h_out_tot = sigma_out_diz["h"] + sigma_th_out_diz["h"]
-    sigma_l_in_tot = sigma_in_diz["l"] + sigma_th_in_diz["l"]
-    sigma_l_out_tot = sigma_out_diz["l"] + sigma_th_out_diz["l"]
-    sigma_r_in_tot = sigma_in_diz["r"] + sigma_th_in_diz["r"]
-    sigma_r_out_tot = sigma_out_diz["r"] + sigma_th_out_diz["r"]
+    
 
     # 5) GAS PLENUM SIZING  -- p_i_max = pressione massima ammissibile (Mariotte, sigma_h = sigma_y)
     V_plenum, H_plenum, n_tot = gas_plenum_analysis(T_gas, D_fuel, D_in, H_active, p_i)
