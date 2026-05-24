@@ -62,12 +62,28 @@ def stress_analysis(r_in, r_out, p_i, p_o):
     sigma_r_out = - p_o
     sigma_l_out = (p_i*r_in**2 - p_o*r_out**2)/(r_out**2 - r_in**2)  # MPa, tensione longitudinale interna
 
-    sigma_max_in = max(abs(sigma_h_in-sigma_r_in), abs(sigma_r_in-sigma_l_in), abs(sigma_l_in-sigma_h_in))  # MPa, tensione massima di Von Mises interna
-    sigma_max_out = max(abs(sigma_h_out-sigma_r_out), abs(sigma_r_out-sigma_l_out), abs(sigma_l_out-sigma_h_out))  # MPa, tensione massima di Von Mises esterna
+    sigma_avg_h = (sigma_h_in + sigma_h_out) / 2
+    sigma_avg_r = (sigma_r_in + sigma_r_out) / 2   
+    sigma_avg_l = (sigma_l_in + sigma_l_out) / 2
 
-    sigma_in = {"h": sigma_h_in, "r": sigma_r_in, "l": sigma_l_in}
-    sigma_out = {"h": sigma_h_out, "r": sigma_r_out, "l": sigma_l_out}
-    return sigma_max_in, sigma_max_out, sigma_in, sigma_out
+    # Meccanici secondari
+    sigma_h_in_sec = sigma_h_in - sigma_avg_h  # MPa, tensione circonferenziale secondaria interna
+    sigma_r_in_sec = sigma_r_in - sigma_avg_r  # MPa, tensione radiale secondaria interna
+    sigma_l_in_sec = sigma_l_in - sigma_avg_l  # MPa, tensione longitudinale secondaria interna
+
+    sigma_h_out_sec = sigma_h_out - sigma_avg_h  # MPa, tensione circonferenziale secondaria esterna
+    sigma_r_out_sec = sigma_r_out - sigma_avg_r  # MPa, tensione radiale secondaria esterna
+    sigma_l_out_sec = sigma_l_out - sigma_avg_l  # MPa, tensione longitudinale secondaria esterna
+
+    sigma_max_avg = max(abs(sigma_avg_h-sigma_avg_r), abs(sigma_avg_r-sigma_avg_l), abs(sigma_avg_l-sigma_avg_h))  # MPa, tensione massima di Von Mises interna
+    
+    sigma_in_diz = {"h": sigma_h_in, "r": sigma_r_in, "l": sigma_l_in}
+    sigma_out_diz = {"h": sigma_h_out, "r": sigma_r_out, "l": sigma_l_out}
+    sigma_in_sec_diz = {"h": sigma_h_in_sec, "r": sigma_r_in_sec, "l": sigma_l_in_sec}
+    sigma_out_sec_diz = {"h": sigma_h_out_sec, "r": sigma_r_out_sec, "l": sigma_l_out_sec}
+    sigma_avg_diz = {"h": sigma_avg_h, "r": sigma_avg_r, "l": sigma_avg_l}
+    
+    return sigma_max_avg, sigma_in_diz, sigma_out_diz, sigma_in_sec_diz, sigma_out_sec_diz, sigma_avg_diz
 
 # 4) THERMAL STRESS
 def thermal_stress(T_ci, T_co, r_in, r_out):
@@ -79,60 +95,65 @@ def thermal_stress(T_ci, T_co, r_in, r_out):
     sigma_h_out = term1*(1-(2*r_in**2)/(r_out**2-r_in**2)* np.log(r_out/r_in))  # MPa, tensione termica interna
     sigma_th_in = {"h": sigma_h_in, "r": np.zeros_like(sigma_h_in), "l": sigma_h_in}
     sigma_th_out = {"h": sigma_h_out, "r": np.zeros_like(sigma_h_out), "l": sigma_h_out}
-    return sigma_h_in, sigma_h_out, sigma_th_in, sigma_th_out
+    return sigma_th_in, sigma_th_out
 
 
 # 5) GAS PLENUM ANALYSIS
-def gas_plenum_analysis(T_gas, d_p, D_in, H, p_max):
-    # Data
-    BU_MWd = 60e3
-    BU = BU_MWd * 1e6 * 86400 / 1e3
-    c_N2 = 25e-6
-    c_H2O = 75e-6
-    u_N2, u_H2O = 0.028, 0.018
-    Y = 0.28
-    R_r = 0.4
-    rho_th = 10960
-    rho_UO2 = 0.95 * rho_th
-    E_f = 200 * 1.60218e-13
-    e_U235 = 0.0445
-    u_235, u_238, u_O = 235, 238, 16.00
-    u_U = 1 / (e_U235 / u_235 + (1 - e_U235) / u_238)
-    u_UO2 = u_U + 2 * u_O
-    N_A = 6.022e23
-    R = 8.314
+def gas_plenum_analysis(T_gas, D_f, D_in, H, p_i_max):
+    # DATI
+    # gas prodotti solo da Xe e Kr e possono essere trattati come gas perfetti
+    burn_up_MWd = 60e3                            # MWd/tU
+    burn_up_J = burn_up_MWd * 1e6 * 86400 / 1e3   # J/kg_U  (1 MWd = 1e6 W * 86400 s; per tU -> per 1e3 kg)
+    N2 = 25   # ppm in peso (impurita')
+    H2O = 75  # ppm in peso (impurita')
+    M_N2, M_H2O = 0.028, 0.018               # kg/mol
+    Y_XeKr = 0.28                # resa di fissione COMBINATA Xe+Kr (atomi di gas nobile per fissione)
+    f_R = 0.4 
+    rho_teorica = 10960                   # frazione di gas rilasciata dalla pastiglia
+    rho_fuel = 0.95 * rho_teorica     # kg/m3, densita' UO2 (95% del teorico)
+    E_fiss = 200 * 1.60218e-13   # J, energia rilasciata per fissione (200 MeV)
+    e_U235 = 0.0445              # arricchimento (frazione in peso di U-235); coerente con enr_max in main (AP1000, verificare su ML11171A443)
+    M_235, M_238, M_O = 235, 238, 16.00            # g/mol
+    M_U = 1 / (e_U235 / M_235 + (1 - e_U235) / M_238)    # g/mol, massa molare media dell'U arricchito (media in peso)
+    M_UO2 = M_U + 2 * M_O        # g/mol
+    N_A = 6.022e23              # 1/mol, numero di Avogadro
+    # massa di combustibile e di uranio nella barretta
+    V_fuel = np.pi * (D_f / 2)**2 * H   # m3, volume della colonna di pastiglie
+    m_UO2 = V_fuel * rho_fuel           # kg, massa di UO2
+    f_uranio = M_U / M_UO2                   # frazione in peso di uranio nell'UO2
+    m_U = m_UO2 * M_U / M_UO2           # kg, massa di uranio
+    R = 8.314  # J/(mol K), costante dei gas
+    # moli di gas di fissione rilasciati
+    N_fiss = burn_up_J * m_U / E_fiss   # adimensionale (numero di fissioni)
+    n_fiss = N_fiss / N_A                   # mol di fissioni
+    n_fg = N_fiss * f_R * Y_XeKr / N_A   # mol di gas di fissione (Xe+Kr) rilasciate
 
-    # UO2 and uranium mass in the pin
-    V_fuel = np.pi * (d_p / 2)**2 * H
-    M_UO2 = V_fuel * rho_UO2
-    M_U = M_UO2 * u_U / u_UO2
 
-    # Fission gas moles (Xe + Kr)
-    N_f = BU * M_U / E_f
-    n_XeKr = N_f * R_r * Y / N_A
+    # moli di impurità
+    n_N2  = (N2  * 1e-6 * m_UO2) / M_N2       # mol  (N2  = 25 ppm)
+    n_H2O = (H2O * 1e-6 * m_UO2) / M_H2O      # mol  (H2O = 75 ppm)
 
-    # Impurity gas moles
-    n_N2 = c_N2 * M_UO2 / u_N2
-    n_H2O = c_H2O * M_UO2 / u_H2O
-    
-    # Total moles
-    n_tot = n_XeKr + n_N2 + n_H2O
+    # calcolo le moli totali
+    n_tot = n_fg + n_N2 + n_H2O
 
     # Gas temperature at the plenum (top of the pin)
     T = T_gas[-1] + 273.15
 
-    # Ideal gas law -> plenum volume and height (+ spring allowance)
-    r_i = D_in / 2
-    V_min = n_tot * R * T / p_max
-    H_min = V_min / (np.pi * r_i**2)
-    H_spring = 0.15
-    H_plenum = H_min + H_spring
+    # legge dei gas perfetti -> volume del plenum a p_i_max
+    V = n_tot * R * T / p_i_max          # m3
+    # il plenum e' delimitato dalla parete INTERNA della guaina (non dal pellet)
+    A_plenum = np.pi * (D_in / 2)**2     # m2, sezione interna guaina
+    H_plenum = V / A_plenum              # m, altezza del plenum
 
-    # Check ideal gas assumption for water vapor (slide step 5)
-    p_H2O_id = n_H2O * R * T / V_min
-    import CoolProp.CoolProp as CP
-    p_H2O_real = CP.PropsSI('P', 'T', T, 'Dmolar', n_H2O / V_min, 'Water')
-    dev = (p_H2O_id - p_H2O_real) / p_H2O_real * 100
+    # ---- CHECK: validita' del gas ideale per il vapore d'acqua ----
+    p_H2O = n_H2O / n_tot * p_i_max      # Pa, pressione parziale H2O (legge di Dalton)
+    Tc_H2O, pc_H2O = 647.1, 22.06e6      # K, Pa (coordinate critiche acqua)
+    Tr, pr = T / Tc_H2O, p_H2O / pc_H2O
+    try:
+        import CoolProp.CoolProp as CP
+        Z = CP.PropsSI('Z', 'T', T, 'P', p_H2O, 'Water')   # fattore di compressibilita'
+    except Exception:
+        Z = float('nan')
 
     # Output
     print()
@@ -151,7 +172,7 @@ def gas_plenum_analysis(T_gas, d_p, D_in, H, p_max):
     print(f"   deviation           = {dev:8.2f} %")
     print("=" * 52)
 
-    return V_min, H_plenum, n_tot
+    return V, H_plenum, n_tot
 
 
 
@@ -192,12 +213,15 @@ def main():
     p_i = internal_pressure_analysis(sigma_y, r_avg, thickness)  # Pa
 
     # 3) STRESS ANALYSIS
-    sigma_max_in, sigma_max_out, sigma_in_diz, sigma_out_diz = stress_analysis(D_in/2, D_out_clad/2, p_i, p_sys)  # Pa
-    P_in = sigma_max_in / 1e6     # MPa
-    P_out = sigma_max_out / 1e6    # MPa
+    sigma_max_avg, sigma_in_diz, sigma_out_diz,sigma_in_sec_diz,sigma_out_sec_diz,sigma_avg_diz = stress_analysis(D_in/2, D_out_clad/2, p_i, p_sys)  # Pa
+    P_avg = sigma_max_avg / 1e6     # MPa  
     # componenti meccaniche in MPa (stress_analysis lavora in Pa: p_i, p_sys sono in Pa)
     sigma_in_diz = {k: v / 1e6 for k, v in sigma_in_diz.items()}    # MPa
     sigma_out_diz = {k: v / 1e6 for k, v in sigma_out_diz.items()}  # MPa
+    sigma_avg_diz = {k: v / 1e6 for k, v in sigma_avg_diz.items()}
+    sigma_in_sec_diz = {k: v / 1e6 for k, v in sigma_in_sec_diz.items()}  # MPa
+    sigma_out_sec_diz = {k: v / 1e6 for k, v in sigma_out_sec_diz.items()}  # MPa
+
 
     # Tabella di verifica ASME (stress primari, condizioni di design): sigma_max <= Sm
     print()
@@ -207,31 +231,47 @@ def main():
     print(f" Sm = min(2/3 sy, 1/3 su) = {S:.2f} MPa")
     print("-" * 52)
     print(f" {'Wall':<8}{'sigma_max [MPa]':>18}{'Sm [MPa]':>12}{'Check':>10}")
-    for name, smax in (("Inner", P_in), ("Outer", P_out)):
-        verdict = "OK" if smax < S else "NOT OK"
-        print(f" {name:<8}{smax:>18.2f}{S:>12.2f}{verdict:>10}")
+    # ASME check: use average stress value `P_avg` (one value instead of inner/outer)
+    name = "Average"
+    smax = P_avg
+    verdict = "OK" if smax < S else "NOT OK"
+    print(f" {name:<8}{smax:>18.2f}{S:>12.2f}{verdict:>10}")
     print("=" * 52)
 
     # 4) THERMAL STRESS
-    Q_in, Q_out, sigma_th_in_diz, sigma_th_out_diz = thermal_stress(T_ci + 273.15, T_co + 273.15, D_in/2, D_out_clad/2)  # MPa 
-    sigma_max_in_tot = P_in + Q_in
-    sigma_max_out_tot = P_out + Q_out
-    if max(sigma_max_in_tot) < 3*S and max(sigma_max_out_tot) < 3*S:
+    sigma_th_in_diz, sigma_th_out_diz = thermal_stress(T_ci + 273.15, T_co + 273.15, D_in/2, D_out_clad/2)  # MPa 
+    
+    sigma_h_in_tot = sigma_avg_diz["h"]+sigma_in_sec_diz["h"] + sigma_th_in_diz["h"] # primarimeccanici+ secondari meccanici + termici
+    sigma_h_out_tot = sigma_avg_diz["h"]+sigma_out_sec_diz["h"] + sigma_th_out_diz["h"]
+    sigma_l_in_tot = sigma_avg_diz["l"]+sigma_in_sec_diz["l"] + sigma_th_in_diz["l"]
+    sigma_l_out_tot = sigma_avg_diz["l"]+sigma_out_sec_diz["l"] + sigma_th_out_diz["l"]
+    sigma_r_in_tot = sigma_avg_diz["r"]+sigma_in_sec_diz["r"] + sigma_th_in_diz["r"]
+    sigma_r_out_tot = sigma_avg_diz["r"]+sigma_out_sec_diz["r"] + sigma_th_out_diz["r"]
+    
+    # Tresca (element-wise) per in e per out: massimo fra le tre differenze in ogni punto z
+    arr1_in = np.abs(sigma_l_in_tot - sigma_h_in_tot)
+    arr2_in = np.abs(sigma_l_in_tot - sigma_r_in_tot)
+    arr3_in = np.abs(sigma_h_in_tot - sigma_r_in_tot)
+    sigma_max_in_tot = np.maximum.reduce([arr1_in, arr2_in, arr3_in])
+
+    arr1_out = np.abs(sigma_l_out_tot - sigma_h_out_tot)
+    arr2_out = np.abs(sigma_l_out_tot - sigma_r_out_tot)
+    arr3_out = np.abs(sigma_h_out_tot - sigma_r_out_tot)
+    sigma_max_out_tot = np.maximum.reduce([arr1_out, arr2_out, arr3_out])
+
+    # confronto scalare sul massimo lungo il profilo z (peggiore caso)
+    if np.max(sigma_max_in_tot) < 3 * S and np.max(sigma_max_out_tot) < 3 * S:
         print("The cladding is safe against combined mechanical and thermal stresses.")
     else:
         print("The cladding is NOT safe against combined mechanical and thermal stresses.")
 
     # calcolo delle tensioni totali (meccaniche + termiche) per ogni componente (h, r, l) e per interno/esterno
-    sigma_h_in_tot = sigma_in_diz["h"] + sigma_th_in_diz["h"]
-    sigma_h_out_tot = sigma_out_diz["h"] + sigma_th_out_diz["h"]
-    sigma_l_in_tot = sigma_in_diz["l"] + sigma_th_in_diz["l"]
-    sigma_l_out_tot = sigma_out_diz["l"] + sigma_th_out_diz["l"]
-    sigma_r_in_tot = sigma_in_diz["r"] + sigma_th_in_diz["r"]
-    sigma_r_out_tot = sigma_out_diz["r"] + sigma_th_out_diz["r"]
+    
 
     # 5) GAS PLENUM SIZING  -- p_i_max = pressione massima ammissibile (Mariotte, sigma_h = sigma_y)
-    V_plenum, H_plenum, n_tot = gas_plenum_analysis(T_gas, D_fuel, D_in, H_active, p_i)
-
+    V_plenum, H_plenum, n_tot, H_tot_plenum = gas_plenum_analysis(T_gas, D_fuel, D_in, H_active, p_i)
+    print(f"Total plenum height (including spring): {H_tot_plenum:.2f} m")
+    print(f"Plenum height (without spring): {H_plenum:.2f} m")
 
 # ----- PLOT ------
 # 1) Buckling analysis: p_cr(z)
