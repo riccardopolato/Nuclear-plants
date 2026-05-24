@@ -83,82 +83,75 @@ def thermal_stress(T_ci, T_co, r_in, r_out):
 
 
 # 5) GAS PLENUM ANALYSIS
-def gas_plenum_analysis(T_gas, D_f, D_in, H, p_i_max):
-    # DATI
-    # gas prodotti solo da Xe e Kr e possono essere trattati come gas perfetti
-    burn_up_MWd = 60e3                            # MWd/tU
-    burn_up_J = burn_up_MWd * 1e6 * 86400 / 1e3   # J/kg_U  (1 MWd = 1e6 W * 86400 s; per tU -> per 1e3 kg)
-    N2 = 25   # ppm in peso (impurita')
-    H2O = 75  # ppm in peso (impurita')
-    M_N2, M_H2O = 0.028, 0.018               # kg/mol
-    Y_XeKr = 0.28                # resa di fissione COMBINATA Xe+Kr (atomi di gas nobile per fissione)
-    f_R = 0.4 
-    rho_teorica = 10960                   # frazione di gas rilasciata dalla pastiglia
-    rho_fuel = 0.95 * rho_teorica     # kg/m3, densita' UO2 (95% del teorico)
-    E_fiss = 200 * 1.60218e-13   # J, energia rilasciata per fissione (200 MeV)
-    e_U235 = 0.0445              # arricchimento (frazione in peso di U-235); coerente con enr_max in main (AP1000, verificare su ML11171A443)
-    M_235, M_238, M_O = 235, 238, 16.00            # g/mol
-    M_U = 1 / (e_U235 / M_235 + (1 - e_U235) / M_238)    # g/mol, massa molare media dell'U arricchito (media in peso)
-    M_UO2 = M_U + 2 * M_O        # g/mol
-    N_A = 6.022e23              # 1/mol, numero di Avogadro
-    # massa di combustibile e di uranio nella barretta
-    V_fuel = np.pi * (D_f / 2)**2 * H   # m3, volume della colonna di pastiglie
-    m_UO2 = V_fuel * rho_fuel           # kg, massa di UO2
-    f_uranio = M_U / M_UO2                   # frazione in peso di uranio nell'UO2
-    m_U = m_UO2 * M_U / M_UO2           # kg, massa di uranio
-    R = 8.314  # J/(mol K), costante dei gas
-    # moli di gas di fissione rilasciati
-    N_fiss = burn_up_J * m_U / E_fiss   # adimensionale (numero di fissioni)
-    n_fiss = N_fiss / N_A                   # mol di fissioni
-    n_fg = N_fiss * f_R * Y_XeKr / N_A   # mol di gas di fissione (Xe+Kr) rilasciate
+def gas_plenum_analysis(T_gas, d_p, D_in, H, p_max):
+    # Data
+    BU_MWd = 60e3
+    BU = BU_MWd * 1e6 * 86400 / 1e3
+    c_N2 = 25e-6
+    c_H2O = 75e-6
+    u_N2, u_H2O = 0.028, 0.018
+    Y = 0.28
+    R_r = 0.4
+    rho_th = 10960
+    rho_UO2 = 0.95 * rho_th
+    E_f = 200 * 1.60218e-13
+    e_U235 = 0.0445
+    u_235, u_238, u_O = 235, 238, 16.00
+    u_U = 1 / (e_U235 / u_235 + (1 - e_U235) / u_238)
+    u_UO2 = u_U + 2 * u_O
+    N_A = 6.022e23
+    R = 8.314
 
+    # UO2 and uranium mass in the pin
+    V_fuel = np.pi * (d_p / 2)**2 * H
+    M_UO2 = V_fuel * rho_UO2
+    M_U = M_UO2 * u_U / u_UO2
 
-    # moli di impurità
-    n_N2  = (N2  * 1e-6 * m_UO2) / M_N2       # mol  (N2  = 25 ppm)
-    n_H2O = (H2O * 1e-6 * m_UO2) / M_H2O      # mol  (H2O = 75 ppm)
+    # Fission gas moles (Xe + Kr)
+    N_f = BU * M_U / E_f
+    n_XeKr = N_f * R_r * Y / N_A
 
-    # calcolo le moli totali
-    n_tot = n_fg + n_N2 + n_H2O
+    # Impurity gas moles
+    n_N2 = c_N2 * M_UO2 / u_N2
+    n_H2O = c_H2O * M_UO2 / u_H2O
+    
+    # Total moles
+    n_tot = n_XeKr + n_N2 + n_H2O
 
-    # temperatura del gas = T interna guaina alla quota del plenum (in cima al pin)
-    T = T_gas[-1] + 273.15  # K  (T_gas e' in degC)
+    # Gas temperature at the plenum (top of the pin)
+    T = T_gas[-1] + 273.15
 
-    # legge dei gas perfetti -> volume del plenum a p_i_max
-    V = n_tot * R * T / p_i_max          # m3
-    # il plenum e' delimitato dalla parete INTERNA della guaina (non dal pellet)
-    A_plenum = np.pi * (D_in / 2)**2     # m2, sezione interna guaina
-    H_plenum = V / A_plenum              # m, altezza del plenum
+    # Ideal gas law -> plenum volume and height (+ spring allowance)
+    r_i = D_in / 2
+    V_min = n_tot * R * T / p_max
+    H_min = V_min / (np.pi * r_i**2)
+    H_spring = 0.15
+    H_plenum = H_min + H_spring
 
-    # ---- CHECK: validita' del gas ideale per il vapore d'acqua ----
-    p_H2O = n_H2O / n_tot * p_i_max      # Pa, pressione parziale H2O (legge di Dalton)
-    Tc_H2O, pc_H2O = 647.1, 22.06e6      # K, Pa (coordinate critiche acqua)
-    Tr, pr = T / Tc_H2O, p_H2O / pc_H2O
-    try:
-        import CoolProp.CoolProp as CP
-        Z = CP.PropsSI('Z', 'T', T, 'P', p_H2O, 'Water')   # fattore di compressibilita'
-    except Exception:
-        Z = float('nan')
+    # Check ideal gas assumption for water vapor (slide step 5)
+    p_H2O_id = n_H2O * R * T / V_min
+    import CoolProp.CoolProp as CP
+    p_H2O_real = CP.PropsSI('P', 'T', T, 'Dmolar', n_H2O / V_min, 'Water')
+    dev = (p_H2O_id - p_H2O_real) / p_H2O_real * 100
 
-    # ---- RISULTATO FINALE ----
+    # Output
     print()
     print("=" * 52)
     print(" GAS PLENUM SIZING")
     print("=" * 52)
-    print(f" n (Xe+Kr) rilasciate  = {n_fg * 1e3:8.3f} mmol")
-    print(f" n N2                  = {n_N2 * 1e3:8.3f} mmol")
-    print(f" n H2O                 = {n_H2O * 1e3:8.3f} mmol")
-    print(f" n_tot                 = {n_tot * 1e3:8.3f} mmol")
+    print(f" T_gas (top, inner)    = {T - 273.15:8.1f} degC ({T:7.1f} K)")
+    print(f" p_max (Mariotte)      = {p_max / 1e6:8.2f} MPa")
+    print(f" V_min                 = {V_min * 1e6:8.2f} cm^3")
+    print(f" H_min (no spring)     = {H_min * 100:8.2f} cm")
+    print(f" H_plenum (w/ spring)  = {H_plenum * 100:8.2f} cm  (+{H_spring * 100:.0f} cm spring)")
     print("-" * 52)
-    print(f" T_gas (cima, interna) = {T - 273.15:8.1f} degC ({T:7.1f} K)")
-    print(f" p_i,max (Mariotte)    = {p_i_max / 1e6:8.2f} MPa")
-    print(f" V_plenum              = {V * 1e6:8.2f} cm^3")
-    print(f" H_plenum              = {H_plenum * 100:8.2f} cm")
-    print("-" * 52)
-    gas_ok = "OK (Z~1)" if abs(Z - 1) < 0.05 else "non ideale, verificare"
-    print(f" H2O ideal gas: Tr={Tr:.3f}  pr={pr:.3f}  Z={Z:.3f}  -> {gas_ok}")
+    print(" H2O ideal gas check:")
+    print(f"   p_H2O ideal         = {p_H2O_id / 1e6:8.3f} MPa")
+    print(f"   p_H2O real          = {p_H2O_real / 1e6:8.3f} MPa")
+    print(f"   deviation           = {dev:8.2f} %")
     print("=" * 52)
 
-    return V, H_plenum, n_tot
+    return V_min, H_plenum, n_tot
 
 
 
