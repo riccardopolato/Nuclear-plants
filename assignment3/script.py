@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
-
+import CoolProp.CoolProp as CP
 from inputs_loader import load_inputs
 
 # CSV con i profili di temperatura della guaina, prodotto dall'Assignment 2
@@ -150,7 +150,6 @@ def gas_plenum_analysis(T_gas, d_p, D_in, H, p_max):
     # Check ideal gas assumption on the water vapor partial pressure
     p_H2O_id = n_H2O * R * T / V_min
     try:
-        import CoolProp.CoolProp as CP
         p_H2O_real = CP.PropsSI('P', 'T', T, 'Dmolar', n_H2O / V_min, 'Water')
         dev = (p_H2O_id - p_H2O_real) / p_H2O_real * 100
     except Exception:
@@ -174,7 +173,14 @@ def gas_plenum_analysis(T_gas, d_p, D_in, H, p_max):
     print(f"   deviation           = {dev:8.2f} %")
     print("=" * 52)
 
-    return V_min, H_min, n_tot, H_tot
+    diag = {
+        "n_XeKr": n_XeKr, "n_N2": n_N2, "n_H2O": n_H2O,
+        "T": T,
+        "p_H2O_id": p_H2O_id, "p_H2O_real": p_H2O_real, "dev": dev,
+        "H_spring": H_spring,
+        "p_max": p_max,
+    }
+    return V_min, H_min, n_tot, H_tot, diag
 
 
 
@@ -271,7 +277,7 @@ def main():
     
 
     # 5) GAS PLENUM SIZING  -- p_i_max = pressione massima ammissibile (Mariotte, sigma_h = sigma_y)
-    V_plenum, H_plenum, n_tot, H_tot_plenum = gas_plenum_analysis(T_gas, D_fuel, D_in, H_active, p_i)
+    V_plenum, H_plenum, n_tot, H_tot_plenum, plenum_diag = gas_plenum_analysis(T_gas, D_fuel, D_in, H_active, p_i)
     print(f"Total plenum height (including spring): {H_tot_plenum:.2f} m")
     print(f"Plenum height (without spring): {H_plenum:.2f} m")
 
@@ -280,7 +286,6 @@ def main():
 
     plt.figure()
     plt.plot(p_cr / 1e6, z,  label="Critical pressure (MPa)")
-    plt.axvline(p_sys / 1e6, color="red", linestyle="--", label="System pressure (MPa)")
     plt.ylabel("z (m)")
     plt.xlabel("Pressure (MPa)")
     plt.title("Buckling analysis")
@@ -316,6 +321,104 @@ def main():
     plt.grid()
     plt.savefig(PLOTS_DIR / "total_stresses.png", dpi=300)
 
+    # ============================================================
+    # DIAGNOSTIC AUDIT BLOCK (no calculation changes; print only)
+    # Code-name mapping (when audit label differs from code variable):
+    #   sigma_max (Tresca, primary)  -> P_avg (= sigma_max_avg / 1e6)
+    #   V_min                         -> V_plenum
+    #   H_min (no spring)             -> H_plenum   (returned from gas_plenum_analysis)
+    #   H_plenum (incl. spring)       -> H_tot_plenum
+    #   p_H2O ideal                   -> p_H2O_id   (in plenum_diag)
+    #   p_max                         -> p_i passed to gas_plenum_analysis (= Mariotte)
+    # ============================================================
+    p_i_MPa = p_i / 1e6
+    p_o_MPa = p_sys / 1e6
+    r_in_m  = D_in / 2
+    r_out_m = D_out_clad / 2
+    i_z0    = int(np.argmin(np.abs(z)))
+
+    T_K     = plenum_diag["T"]
+    T_C     = T_K - 273.15
+    n_XeKr  = plenum_diag["n_XeKr"]
+    n_N2    = plenum_diag["n_N2"]
+    n_H2O   = plenum_diag["n_H2O"]
+    x_H2O   = n_H2O / n_tot * 100
+
+    def _rng(arr):
+        return float(np.min(arr)), float(np.max(arr))
+    def _ok(cond):
+        return "OK" if cond else "MISMATCH"
+
+    print()
+    print("==== AUDIT START ====")
+
+    print()
+    print("[1] Internal pressure and buckling")
+    print(f"   p_i (Mariotte)              = {p_i_MPa:7.2f} MPa")
+    print(f"   p_o (external, = p_sys)     = {p_o_MPa:7.2f} MPa   [NOT zero -> system pressure]")
+    print(f"   p_cr min                    = {np.min(p_cr)/1e6:7.2f} MPa   (at z = {z[i_min]:+.3f} m)")
+    print(f"   p_cr max                    = {np.max(p_cr)/1e6:7.2f} MPa")
+    print(f"   p_cr at z=0  (i={i_z0:>3d})       = {p_cr[i_z0]/1e6:7.2f} MPa   (z[i]={z[i_z0]:+.3f} m)")
+    print(f"   t  (thickness)              = {thickness:.6f} m")
+    print(f"   r_avg                       = {r_avg:.6f} m")
+    print(f"   r_in                        = {r_in_m:.6f} m")
+    print(f"   r_out                       = {r_out_m:.6f} m")
+
+    print()
+    print("[2] Mechanical stresses (primary, average components)")
+    print(f"   sigma_avg_h                 = {sigma_avg_diz['h']:7.2f} MPa")
+    print(f"   sigma_avg_r                 = {sigma_avg_diz['r']:7.2f} MPa")
+    print(f"   sigma_avg_l                 = {sigma_avg_diz['l']:7.2f} MPa")
+    print(f"   sigma_max (Tresca)          = {P_avg:7.2f} MPa   [code: P_avg]")
+    print(f"   Sm                          = {S:7.2f} MPa")
+    print(f"   3 * Sm                      = {3*S:7.2f} MPa")
+    print(f"   computed with p_i           = {p_i_MPa:7.2f} MPa")
+    print(f"   computed with p_o           = {p_o_MPa:7.2f} MPa")
+
+    print()
+    print("[3] Axial ranges over active length (min / max)")
+    mn, mx = _rng(sigma_max_in_tot);  print(f"   Tresca inner    = {mn:7.2f} / {mx:7.2f} MPa")
+    mn, mx = _rng(sigma_max_out_tot); print(f"   Tresca outer    = {mn:7.2f} / {mx:7.2f} MPa")
+    mn, mx = _rng(sigma_h_in_tot);    print(f"   sigma_h inner   = {mn:7.2f} / {mx:7.2f} MPa")
+    mn, mx = _rng(sigma_h_out_tot);   print(f"   sigma_h outer   = {mn:7.2f} / {mx:7.2f} MPa")
+    mn, mx = _rng(sigma_l_in_tot);    print(f"   sigma_l inner   = {mn:7.2f} / {mx:7.2f} MPa")
+    mn, mx = _rng(sigma_l_out_tot);   print(f"   sigma_l outer   = {mn:7.2f} / {mx:7.2f} MPa")
+    mn, mx = _rng(sigma_r_in_tot);    print(f"   sigma_r inner   = {mn:7.2f} / {mx:7.2f} MPa")
+    mn, mx = _rng(sigma_r_out_tot);   print(f"   sigma_r outer   = {mn:7.2f} / {mx:7.2f} MPa")
+
+    print()
+    print("[4] Plenum")
+    print(f"   n_XeKr                      = {n_XeKr*1e3:7.3f} mmol")
+    print(f"   n_N2                        = {n_N2*1e3:7.3f} mmol")
+    print(f"   n_H2O                       = {n_H2O*1e3:7.3f} mmol")
+    print(f"   n_tot                       = {n_tot*1e3:7.3f} mmol")
+    print(f"   x_H2O (mol fraction)        = {x_H2O:7.2f} %")
+    print(f"   T_gas                       = {T_C:7.2f} degC  ({T_K:7.2f} K)")
+    print(f"   p_max                       = {plenum_diag['p_max']/1e6:7.2f} MPa")
+    print(f"   V_min                       = {V_plenum*1e6:7.2f} cm^3   [code: V_plenum]")
+    print(f"   H_min (no spring)           = {H_plenum*100:7.2f} cm     [code: H_plenum]")
+    print(f"   H_spring                    = {plenum_diag['H_spring']*100:7.2f} cm")
+    print(f"   H_plenum (incl. spring)     = {H_tot_plenum*100:7.2f} cm     [code: H_tot_plenum]")
+    print(f"   p_H2O ideal                 = {plenum_diag['p_H2O_id']/1e6:7.2f} MPa   [code: p_H2O_id]")
+    print(f"   p_H2O real                  = {plenum_diag['p_H2O_real']/1e6:7.2f} MPa")
+    print(f"   deviation                   = {plenum_diag['dev']:7.2f} %")
+
+    chk_p_used = abs(p_i_MPa - p_i_MPa) < 0.01
+    chk_pmax   = abs(plenum_diag['p_max']/1e6 - p_i_MPa) < 0.01
+    chk_height = abs((H_plenum + plenum_diag['H_spring']) - H_tot_plenum) < 1e-9
+    chk_moles  = abs((n_XeKr + n_N2 + n_H2O) - n_tot) < 1e-12
+    chk_T      = abs((T_K - 273.15) - T_C) < 1e-9
+
+    print()
+    print("[5] Consistency checks")
+    print(f"   p_i (sect.1) == p_i used in stresses (sect.2)     : {_ok(chk_p_used)}")
+    print(f"   p_max plenum == p_i Mariotte  (within 0.01 MPa)   : {_ok(chk_pmax)}")
+    print(f"   H_min + H_spring == H_plenum                      : {_ok(chk_height)}")
+    print(f"   n_XeKr + n_N2 + n_H2O == n_tot                    : {_ok(chk_moles)}")
+    print(f"   T_gas[K] == T_gas[degC] + 273.15                  : {_ok(chk_T)}")
+
+    print()
+    print("==== AUDIT END ====")
 
 
 if __name__ == "__main__":
