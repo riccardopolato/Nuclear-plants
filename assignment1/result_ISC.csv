@@ -1,4 +1,4 @@
-VOCE,VALORE [Pa]
+ITEM,VALUE [Pa]
 --- DISTRIBUTED PRESSURE DROPS ---,
 Dist Cold,222.2355
 Dist Hot,224.015
@@ -18,7 +18,7 @@ Loc Core,0.0
 Loc Bends Hx,0.0
 Total Localized,914.6257
 ,
---- FINALE RESUME ---,
+--- FINAL SUMMARY ---,
 Driving Force (Buoyancy),1563.2547
 Total Friction Losses,1563.2547
 Mass Flow Rate [kg/s],70.5828

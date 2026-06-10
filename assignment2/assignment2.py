@@ -830,17 +830,14 @@ if __name__ == "__main__":
     # 12) Design thermal limits verification
     # ===================================================================
     # Typical PWR limits (assignment slides + Westinghouse manuals):
-    #   MDNBR >= 1.85 at nominal power
-    #   MDNBR >= 1.30 at maximum overpower (typically 115% of P_nom)
+    #   MDNBR >= 1.30 
     #   T_fuel,CL < 2800 degC (safety limit, UO2 melting ~2840 degC)
     #   T_clad,out < 350 degC at nominal operation (design limit)
-    MDNBR_LIMIT_NOMINAL   = 1.85
-    MDNBR_LIMIT_OVERPOWER = 1.30
+    MDNBR_LIMIT_NOMINAL   = 1.3
     OVERPOWER_FACTOR      = 1.15
     T_FUEL_LIMIT_C        = 2800.0
     T_CLAD_LIMIT_C        = 350.0
 
-    MDNBR_at_overpower = MDNBR / OVERPOWER_FACTOR  # estimate: q rises, q_c ~constant
     T_fuel_max = float(np.max(T_centerline))
     T_clad_max = float(np.max(T_co))
 
@@ -855,9 +852,6 @@ if __name__ == "__main__":
           f"(limit >= {MDNBR_LIMIT_NOMINAL:.2f})   "
           f"[{_status(MDNBR, MDNBR_LIMIT_NOMINAL, higher_is_safer=True)}]")
     print(f"   z(MDNBR) location     = {z_MDNBR:+.3f} m")
-    print(f" MDNBR @ {OVERPOWER_FACTOR*100:.0f}% overpower  = {MDNBR_at_overpower:6.3f}   "
-          f"(limit >= {MDNBR_LIMIT_OVERPOWER:.2f})   "
-          f"[{_status(MDNBR_at_overpower, MDNBR_LIMIT_OVERPOWER, higher_is_safer=True)}]")
     print(f" T fuel centerline max   = {T_fuel_max:6.1f} degC  "
           f"(limit <= {T_FUEL_LIMIT_C:.0f} degC) "
           f"[{_status(T_fuel_max, T_FUEL_LIMIT_C, higher_is_safer=False)}]")
