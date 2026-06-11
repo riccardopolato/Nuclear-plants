@@ -833,8 +833,7 @@ if __name__ == "__main__":
     #   MDNBR >= 1.30 
     #   T_fuel,CL < 2800 degC (safety limit, UO2 melting ~2840 degC)
     #   T_clad,out < 350 degC at nominal operation (design limit)
-    MDNBR_LIMIT_NOMINAL   = 1.3
-    OVERPOWER_FACTOR      = 1.15
+    MDNBR_LIMIT_NOMINAL   = 1.85
     T_FUEL_LIMIT_C        = 2800.0
     T_CLAD_LIMIT_C        = 350.0
 
